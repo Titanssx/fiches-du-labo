@@ -41,17 +41,18 @@
     <div class="brand"><h1>Fiches du labo</h1><p id="count">Chargement des recettes…</p></div>
     <div class="addbar" id="addbar" hidden>
       <button type="button" class="btn primary" id="btn-new">+ Nouvelle recette</button>
-      <label class="btn" for="docx">Importer une fiche Word</label>
-      <input type="file" id="docx" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="vh">
+      <a class="btn navbtn" href="#historique" id="nav-hist" aria-current="false">Historique de production</a>
     </div>
     <div class="search"><input id="q" type="search" placeholder="Rechercher une recette ou un ingrédient" aria-label="Rechercher"></div>
     <nav id="list"><p class="empty">Chargement des recettes…</p></nav>
     <div class="foot acct" id="acct" hidden>
       <p style="margin:0">Touchez un ingrédient pour le cocher une fois pesé.</p>
-      <div class="addbar">
-        <button type="button" class="btn" id="btn-backup">Sauvegarder mes recettes</button>
-        <label class="btn" for="restore-in">Restaurer une sauvegarde</label>
+      <div class="tools-links">
+        <button type="button" class="linkbtn" id="btn-backup">Sauvegarder mes recettes</button>
+        <label class="linkbtn" for="restore-in">Restaurer une sauvegarde</label>
         <input type="file" id="restore-in" accept=".json,application/json" class="vh">
+        <label class="linkbtn" for="docx">Importer une fiche Word</label>
+        <input type="file" id="docx" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="vh">
       </div>
       <p style="margin:0">Connecté : <span id="who"></span> · <button type="button" class="linkbtn" id="btn-logout">Se déconnecter</button></p>
     </div>

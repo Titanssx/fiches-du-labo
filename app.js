@@ -116,7 +116,7 @@ function signedIn(user){
   const c=store.get('fiches.cache',null);
   if(c && c.user===user.id){ setRecipes(c.rows||[]); loadState=online()?'loading':'ready'; }
   renderAll();
-  if(online()) loadRecipes(); else { loadState='ready'; renderAll(); toast('Hors connexion : vous consultez la dernière version enregistrée.'); }
+  if(online()){ loadRecipes(); flushPending(); } else { loadState='ready'; renderAll(); toast('Hors connexion : vous consultez la dernière version enregistrée.'); }
 }
 function signedOut(){
   editable=false; RECIPES=[]; byId={}; shown=null; editing=null;
@@ -259,7 +259,13 @@ function renderSheet(r){
       <h2>Production <small>Toutes les quantités se recalculent en direct</small></h2>
       <div class="modes" role="group" aria-label="Mode de calcul">${modesFor(r).map(([k,l])=>`<button type="button" data-mode="${k}" aria-pressed="${c.mode===k}">${esc(l)}</button>`).join('')}</div>
       <div class="inputs" id="inputs">${inputsHTML(r,c)}</div>
-      <div class="readout" aria-live="polite"><span class="coef" id="coef"></span><p id="what"></p><p class="tot" id="tot"></p></div>
+      <div class="readout" aria-live="polite"><span class="coef" id="coef"></span><p id="what"></p><p class="tot" id="tot"></p>
+        ${editable?`<button type="button" class="btn prodbtn" id="prod-open">Enregistrer cette production</button>`:''}</div>
+      ${editable?`<div class="prodform" id="prodform" hidden>
+        <label class="lab" for="prod-date">Date et heure<input class="inp" id="prod-date" type="datetime-local"></label>
+        <label class="lab" for="prod-note">Remarque <span>facultatif</span><input class="inp" id="prod-note" placeholder="ex. mousse un peu ferme"></label>
+        <div class="prodform-actions"><button type="button" class="btn primary" id="prod-save">Enregistrer dans l’historique</button><button type="button" class="btn" id="prod-cancel">Annuler</button></div>
+      </div>`:''}
     </section>
     ${notes?`<ul class="notes">${notes}</ul>`:''}
     <div class="comps">${comps}</div>
@@ -638,9 +644,170 @@ function sanitizeForSave(doc){ return toStored(sanitize('x',doc)); }
 $('#btn-backup').addEventListener('click',exportBackup);
 $('#restore-in').addEventListener('change',ev=>{ const f=ev.target.files[0]; ev.target.value=''; if(f) importBackup(f); });
 
+/* ---------- Historique de production ---------- */
+let view='sheet';
+const pad2=n=>String(n).padStart(2,'0');
+const dateInput=d=>`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+const localInput=d=>`${dateInput(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const fmtKg=g=>g>=1000?(Math.round(g/100)/10).toLocaleString('fr-FR',{maximumFractionDigits:1})+' kg':fmt(g)+' g';
+let PENDING = store.get('fiches.pending',[]);
+const HIST = {from:'', to:'', range:'month', rows:[], loading:false, err:'', confirmDel:null};
+function setRange(k){
+  const now=new Date(), y=now.getFullYear(), m=now.getMonth(); let a=now, b=now;
+  if(k==='7') a=new Date(y,m,now.getDate()-6);
+  else if(k==='month') a=new Date(y,m,1);
+  else if(k==='lastmonth'){ a=new Date(y,m-1,1); b=new Date(y,m,0); }
+  else if(k==='year') a=new Date(y,0,1);
+  HIST.from=dateInput(a); HIST.to=dateInput(b); HIST.range=k;
+}
+setRange('month');
+function qtyLabel(q){
+  if(!q) return '';
+  if(q.kind==='formats') return q.items.map(x=>`${fmt(x.n)} ${x.label}`).join(' + ')||'—';
+  if(q.kind==='units') return `${fmt(q.n)} ${q.n>1?q.unit:q.one}`;
+  return fmtF(q.f);
+}
+function prodSnapshot(r,c){
+  const f=factor(r,c); const agg=new Map(); let total=0; const comps=[];
+  r.comps.forEach(comp=>{ const cf=compFactor(r,c,comp,f); const ct=compBase(comp)*cf; total+=ct; comps.push({n:comp.name,g:Math.round(ct)});
+    comp.ing.forEach(i=>{ if(i.q==null||i.inter) return; const k=norm(i.n)+'|'+i.u; const a=agg.get(k)||{n:i.n,u:i.u,q:0}; a.q+=i.q*cf; agg.set(k,a); }); });
+  const y=r.yield; let qty;
+  if(y&&y.type==='formats'&&c.mode==='formats') qty={kind:'formats',items:y.formats.map(fm=>({label:fm.label,n:num(c.fmt[fm.id])})).filter(x=>x.n>0)};
+  else if(y&&y.type==='units') qty={kind:'units',unit:y.unit,one:y.one,n:Math.round(f*y.base*100)/100};
+  else qty={kind:'coef',f:Math.round(f*1000)/1000};
+  return {recipe:fullName(r), cat:r.cat, factor:Math.round(f*10000)/10000, total:Math.round(total), qty, comps,
+    ing:[...agg.values()].map(a=>({n:a.n,u:a.u,q:Math.round(a.q*10)/10})),
+    calc:JSON.parse(JSON.stringify({mode:c.mode,fmt:c.fmt,units:c.units,poids:c.poids,ing:c.ing,ingVal:c.ingVal,coef:c.coef,over:c.over}))};
+}
+async function recordProduction(r,c,btn){
+  const when=$('#prod-date').value ? new Date($('#prod-date').value) : new Date();
+  if(isNaN(when)){ toast('Date invalide.'); return; }
+  const row={recipe_id:r.id, produced_at:when.toISOString(), data:{...prodSnapshot(r,c), note:$('#prod-note').value.trim()}};
+  btn.disabled=true;
+  let sent=false;
+  if(online()){ const {error}=await SB.from('productions').insert(row); sent=!error; }
+  if(!sent){ PENDING.push({...row, tmp:uuid()}); store.set('fiches.pending',PENDING); }
+  btn.disabled=false; $('#prodform').hidden=true; $('#prod-note').value='';
+  HIST.loaded=false;
+  toast(sent?`Production enregistrée : ${qtyLabel(row.data.qty)} de ${row.data.recipe}.`:'Hors connexion : production gardée sur l’appareil, elle sera envoyée au retour du réseau.',5000);
+}
+async function flushPending(){
+  if(!PENDING.length||!SB||!USER||!online()) return;
+  const left=[];
+  for(const p of PENDING){ const {tmp,...row}=p; const {error}=await SB.from('productions').insert(row); if(error) left.push(p); }
+  const sent=PENDING.length-left.length; PENDING=left; store.set('fiches.pending',PENDING);
+  if(sent){ toast(`${sent} production${sent>1?'s':''} en attente envoyée${sent>1?'s':''}.`); HIST.loaded=false; if(view==='history') loadHistory(); }
+}
+async function loadHistory(){
+  if(!SB||!USER) return;
+  HIST.loading=true; HIST.err=''; renderHistory();
+  const from=new Date(HIST.from+'T00:00:00'), to=new Date(HIST.to+'T23:59:59.999');
+  if(isNaN(from)||isNaN(to)){ HIST.loading=false; HIST.err='Choisissez une date de début et une date de fin.'; renderHistory(); return; }
+  const {data,error}=await SB.from('productions').select('id,recipe_id,produced_at,data').gte('produced_at',from.toISOString()).lte('produced_at',to.toISOString()).order('produced_at',{ascending:false}).limit(5000);
+  HIST.loading=false;
+  if(error){ HIST.err = online()?'L’historique ne peut pas être chargé. Si c’est la première fois, vérifiez que le script « supabase-historique.sql » a bien été lancé dans Supabase.':'Hors connexion : l’historique s’affichera au retour du réseau.'; HIST.rows=[]; }
+  else { HIST.rows=data; HIST.loaded=true; }
+  const pend=PENDING.filter(p=>{ const d=new Date(p.produced_at); return d>=from&&d<=to; }).map(p=>({id:'pending:'+p.tmp, recipe_id:p.recipe_id, produced_at:p.produced_at, data:p.data, pending:true}));
+  HIST.rows=[...pend,...HIST.rows].sort((a,b)=>b.produced_at.localeCompare(a.produced_at));
+  renderHistory();
+}
+function histSummary(rows){
+  const byRec=new Map(), ing=new Map(); let total=0;
+  for(const p of rows){
+    const d=p.data||{}; total+=d.total||0;
+    const e=byRec.get(p.recipe_id)||{id:p.recipe_id,name:d.recipe||p.recipe_id,count:0,g:0,fmt:new Map(),units:new Map(),coef:0};
+    e.count++; e.g+=d.total||0; e.name=e.name||d.recipe;
+    const q=d.qty||{};
+    if(q.kind==='formats') q.items.forEach(x=>e.fmt.set(x.label,(e.fmt.get(x.label)||0)+x.n));
+    else if(q.kind==='units'){ const k=q.unit+'|'+q.one; e.units.set(k,(e.units.get(k)||0)+q.n); }
+    else e.coef+=q.f||0;
+    byRec.set(p.recipe_id,e);
+    (d.ing||[]).forEach(i=>{ const k=norm(i.n)+'|'+i.u; const a=ing.get(k)||{n:i.n,u:i.u,q:0}; a.q+=i.q; ing.set(k,a); });
+  }
+  const recs=[...byRec.values()].map(e=>({...e, label:[
+      ...[...e.fmt].map(([l,n])=>`${fmt(n)} ${l}`),
+      ...[...e.units].map(([k,n])=>{ const [u,o]=k.split('|'); return `${fmt(n)} ${n>1?u:o}`; }),
+      ...(e.coef?[`${fmtF(e.coef)} (fiche)`]:[])].join(' + ')}))
+    .sort((a,b)=>b.g-a.g);
+  const ings=[...ing.values()].sort((a,b)=>a.u===b.u?b.q-a.q:a.u==='g'?-1:1);
+  return {recs, ings, total};
+}
+function renderHistory(){
+  const rows=HIST.rows, s=histSummary(rows);
+  const fromTxt=new Date(HIST.from+'T12:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+  const toTxt=new Date(HIST.to+'T12:00').toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'});
+  const ranges=[['today','Aujourd’hui'],['7','7 derniers jours'],['month','Ce mois-ci'],['lastmonth','Mois dernier'],['year','Cette année']];
+  const days=new Map();
+  rows.forEach(p=>{ const d=new Date(p.produced_at); const k=dateInput(d); if(!days.has(k)) days.set(k,[]); days.get(k).push(p); });
+  const journal=[...days].map(([k,list])=>`
+    <div class="hday"><h3>${esc(new Date(k+'T12:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}))}</h3>
+      <ul class="hlist">${list.map(p=>{ const d=p.data||{}; const t=new Date(p.produced_at);
+        return `<li class="hrow${p.pending?' pending':''}">
+          <span class="htime">${pad2(t.getHours())}:${pad2(t.getMinutes())}</span>
+          <span class="hmain"><b>${byId[p.recipe_id]?`<a href="#${esc(p.recipe_id)}">${esc(d.recipe||p.recipe_id)}</a>`:esc(d.recipe||p.recipe_id)}</b>
+            <span class="hqty">${esc(qtyLabel(d.qty))} · ${fmtKg(d.total||0)}</span>
+            ${d.note?`<span class="hnote">${esc(d.note)}</span>`:''}${p.pending?'<span class="hnote">En attente d’envoi (hors connexion)</span>':''}</span>
+          <span class="hact">${byId[p.recipe_id]&&d.calc?`<button type="button" class="linkbtn" data-h="redo" data-id="${esc(p.id)}">Refaire</button>`:''}
+            ${p.pending?'':(HIST.confirmDel===p.id?`<span class="confirm">Supprimer ? <button type="button" class="btn danger" data-h="del-yes" data-id="${esc(p.id)}">Oui</button><button type="button" class="btn" data-h="del-no">Non</button></span>`
+              :`<button type="button" class="linkbtn" data-h="del" data-id="${esc(p.id)}">Supprimer</button>`)}</span>
+        </li>`; }).join('')}</ul></div>`).join('');
+  $('#main').innerHTML=`<article class="sheet hist">
+    <button type="button" class="back" id="back">← Toutes les recettes</button>
+    <div class="head"><div><p class="eyebrow">Suivi</p><h1>Historique de production</h1><p class="yield">Du ${esc(fromTxt)} au ${esc(toTxt)}</p></div></div>
+    <section class="hfilter" aria-label="Période">
+      <div class="quickr">${ranges.map(([k,l])=>`<button type="button" class="chip${HIST.range===k?' on':''}" data-h="range" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="hdates"><label class="lab" for="h-from">Depuis le<input class="inp" type="date" id="h-from" value="${esc(HIST.from)}"></label>
+        <label class="lab" for="h-to">Jusqu’au<input class="inp" type="date" id="h-to" value="${esc(HIST.to)}"></label></div>
+    </section>
+    ${HIST.err?`<p class="banner">${esc(HIST.err)}</p>`:''}
+    ${HIST.loading&&!rows.length?`<p class="empty">Chargement de l’historique…</p>`:''}
+    ${!HIST.loading&&!HIST.err&&!rows.length?`<p class="empty">Aucune production enregistrée sur cette période. Sur une fiche, calculez la quantité puis touchez « Enregistrer cette production ».</p>`:''}
+    ${rows.length?`
+    <div class="kpis">
+      <div class="kpi"><span>Productions</span><b>${rows.length}</b></div>
+      <div class="kpi"><span>Recettes différentes</span><b>${s.recs.length}</b></div>
+      <div class="kpi"><span>Poids total produit</span><b>${fmtKg(s.total)}</b></div>
+    </div>
+    <section class="totals"><div class="totals-head"><h2>Par recette</h2><button type="button" class="btn" data-h="csv">Exporter pour Excel</button></div>
+      <div class="tablewrap"><table class="htable"><thead><tr><th>Recette</th><th>Fois</th><th>Quantité produite</th><th class="v">Poids</th></tr></thead><tbody>
+      ${s.recs.map(e=>`<tr><td>${byId[e.id]?`<a href="#${esc(e.id)}">${esc(e.name)}</a>`:esc(e.name)}</td><td class="v">${e.count}</td><td>${esc(e.label)}</td><td class="v">${fmtKg(e.g)}</td></tr>`).join('')}
+      </tbody></table></div></section>
+    <section class="totals"><div class="totals-head"><h2>Ingrédients utilisés</h2></div>
+      <p>Total sur la période, préparations intermédiaires exclues. Pratique pour les commandes.</p>
+      <div class="tablewrap"><table><tbody>${s.ings.map(a=>`<tr><td>${esc(a.n)}</td><td class="v">${a.u==='g'?fmtKg(a.q):fmt(a.q)+' '+esc(a.u)}</td></tr>`).join('')}</tbody></table></div></section>
+    <section class="totals"><div class="totals-head"><h2>Journal</h2></div>${journal}</section>`:''}
+  </article>`;
+}
+async function historyClick(t){
+  const h=t.dataset.h; if(!h) return;
+  if(h==='range'){ setRange(t.dataset.v); loadHistory(); return; }
+  if(h==='del'){ HIST.confirmDel=t.dataset.id; renderHistory(); return; }
+  if(h==='del-no'){ HIST.confirmDel=null; renderHistory(); return; }
+  if(h==='del-yes'){ if(!needOnline()) return; const id=t.dataset.id; const {error}=await SB.from('productions').delete().eq('id',id);
+    HIST.confirmDel=null; if(error){ toast('La suppression a échoué. Réessayez.'); renderHistory(); return; }
+    HIST.rows=HIST.rows.filter(p=>p.id!==id); toast('Production supprimée de l’historique.'); renderHistory(); return; }
+  if(h==='redo'){ const p=HIST.rows.find(x=>x.id===t.dataset.id); if(!p||!byId[p.recipe_id]) return;
+    const r=byId[p.recipe_id]; const base=getCalc(r); calcs[r.id]={...base, ...JSON.parse(JSON.stringify(p.data.calc)), open:{}};
+    location.hash=r.id; return; }
+  if(h==='csv'){ const s=histSummary(HIST.rows); const q=v=>'"'+String(v).replace(/"/g,'""')+'"'; const n=v=>String(Math.round(v*10)/10).replace('.',',');
+    const lines=[`Historique de production du ${HIST.from} au ${HIST.to}`,'', 'Recette;Nombre de productions;Quantité produite;Poids (g)',
+      ...s.recs.map(e=>[q(e.name),e.count,q(e.label),n(e.g)].join(';')),'','Ingrédient;Quantité;Unité',
+      ...s.ings.map(a=>[q(a.n),n(a.q),a.u].join(';')),'','Date;Heure;Recette;Quantité;Poids (g);Remarque',
+      ...HIST.rows.map(p=>{ const d=new Date(p.produced_at); return [dateInput(d),`${pad2(d.getHours())}:${pad2(d.getMinutes())}`,q(p.data.recipe),q(qtyLabel(p.data.qty)),n(p.data.total||0),q(p.data.note||'')].join(';'); })];
+    const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`production_${HIST.from}_${HIST.to}.csv`; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },4000); return; }
+}
+
 /* ---------- Navigation ---------- */
 function route(){
   if(editing){ renderEditor(); return; }
+  if(location.hash==='#historique' && editable){
+    view='history'; shown=null; renderList(); $('#app').classList.add('is-sheet');
+    document.querySelectorAll('#nav-hist').forEach(a=>a.setAttribute('aria-current','true'));
+    renderHistory(); window.scrollTo(0,0); if(!HIST.loaded) loadHistory(); return;
+  }
+  view='sheet'; document.querySelectorAll('#nav-hist').forEach(a=>a.setAttribute('aria-current','false'));
   let r=byId[location.hash.slice(1)]||null;
   const desktop = matchMedia('(min-width: 900px)').matches;
   $('#app').classList.toggle('is-sheet', !!r);
@@ -658,7 +825,7 @@ addEventListener('hashchange',()=>{
 });
 $('#q').addEventListener('input',renderList);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && USER && online() && !editing && Date.now()-lastLoad>30000) loadRecipes(); });
-addEventListener('online',()=>{ if(USER){ toast('Connexion rétablie.'); loadRecipes(); } });
+addEventListener('online',()=>{ if(USER){ toast('Connexion rétablie.'); loadRecipes(); flushPending(); } });
 addEventListener('offline',()=>{ if(USER){ toast('Hors connexion : consultation uniquement.'); renderList(); } });
 
 $('#main').addEventListener('click',e=>{
@@ -682,9 +849,13 @@ $('#main').addEventListener('click',e=>{
     }
     renderEditor(); return;
   }
+  if(view==='history'){ if(t.id==='back'){ location.hash=''; return; } historyClick(t); return; }
   const r=shown; if(!r) return; const c=getCalc(r);
   if(t.id==='back'){ location.hash=''; return; }
   if(t.id==='btn-edit'){ startEdit(r); return; }
+  if(t.id==='prod-open'){ if(!isFinite(factor(r,c))||factor(r,c)<=0){ toast('Indiquez d’abord une quantité à produire.'); return; } $('#prodform').hidden=false; $('#prod-date').value=localInput(new Date()); $('#prod-note').focus(); return; }
+  if(t.id==='prod-cancel'){ $('#prodform').hidden=true; return; }
+  if(t.id==='prod-save'){ recordProduction(r,c,t); return; }
   if(t.id==='note-add'){ const ta=$('#note-in'); const txt=ta.value.trim(); if(!txt){ ta.focus(); return; } if(!needOnline()) return;
     t.disabled=true; const doc=toStored(r); doc.journal=[...r.journal,{t:txt,at:Date.now()}];
     saveRecipe(r.id,doc).then(nr=>{ toast('Note ajoutée'); shown=nr; renderSheet(nr); }).catch(()=>{ t.disabled=false; toast('La note n’a pas pu être enregistrée. Réessayez.'); }); return; }
@@ -719,6 +890,7 @@ $('#main').addEventListener('input',e=>{
 });
 $('#main').addEventListener('change',e=>{
   const t=e.target;
+  if(view==='history'){ if(t.id==='h-from'||t.id==='h-to'){ HIST[t.id==='h-from'?'from':'to']=t.value; HIST.range=''; loadHistory(); } return; }
   if(editing){
     if(t.name==='ytype'){ editing.draft.yield.type=t.value; renderEditor(); }
     else if(t.type==='checkbox' && t.dataset.b) setPath(editing.draft, t.dataset.b, t.checked);
