@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Fiches du labo</title>
+<meta name="description" content="Carnet de recettes de pâtisserie avec calcul des quantités.">
+<meta name="theme-color" content="#F4F1F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161010" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Fiches labo">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="login" id="login" hidden>
+  <div class="login-card">
+    <h1>Fiches du labo</h1>
+    <p class="login-sub">Votre carnet de recettes de pâtisserie.</p>
+    <form id="login-form" novalidate>
+      <label class="lab" for="login-email">Email<input class="inp" id="login-email" type="email" autocomplete="username" required></label>
+      <label class="lab" for="login-pass">Mot de passe<input class="inp" id="login-pass" type="password" autocomplete="current-password" required></label>
+      <button type="submit" class="btn primary" id="login-btn">Se connecter</button>
+      <p class="err" id="login-err" role="alert"></p>
+    </form>
+    <p class="help" id="setup-msg" hidden>L’appli n’est pas encore reliée à Supabase. Renseignez l’adresse du projet et la clé publique dans le fichier <code>config.js</code>, puis rechargez la page.</p>
+  </div>
+</div>
+
+<div class="app" id="app" hidden>
+  <aside class="index" id="index">
+    <div class="brand"><h1>Fiches du labo</h1><p id="count">Chargement des recettes…</p></div>
+    <div class="addbar" id="addbar" hidden>
+      <button type="button" class="btn primary" id="btn-new">+ Nouvelle recette</button>
+      <label class="btn" for="docx">Importer une fiche Word</label>
+      <input type="file" id="docx" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="vh">
+    </div>
+    <div class="search"><input id="q" type="search" placeholder="Rechercher une recette ou un ingrédient" aria-label="Rechercher"></div>
+    <nav id="list"><p class="empty">Chargement des recettes…</p></nav>
+    <div class="foot acct" id="acct" hidden>
+      <p style="margin:0">Touchez un ingrédient pour le cocher une fois pesé.</p>
+      <div class="addbar">
+        <button type="button" class="btn" id="btn-backup">Sauvegarder mes recettes</button>
+        <label class="btn" for="restore-in">Restaurer une sauvegarde</label>
+        <input type="file" id="restore-in" accept=".json,application/json" class="vh">
+      </div>
+      <p style="margin:0">Connecté : <span id="who"></span> · <button type="button" class="linkbtn" id="btn-logout">Se déconnecter</button></p>
+    </div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+<div id="lb" hidden><img alt=""></div>
+<div id="toast" role="status" hidden></div>
+<input type="file" id="photo-in" accept="image/*" multiple class="vh">
+
+<script src="config.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
