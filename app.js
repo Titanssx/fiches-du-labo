@@ -64,7 +64,7 @@ let lastLoad=0;
 async function loadRecipes(){
   if(!SB||!USER) return;
   lastLoad=Date.now();
-  const {data,error} = await SB.from('recettes').select('id,data,updated_at');
+  const {data,error} = await SB.from('recettes').select('id,data,updated_at').not('id','like','prod:%').not('id','like','meta:%');
   if(error){ if(!RECIPES.length) loadState = online()?'error':'offline'; renderAll(); return; }
   const prevShown = shown && shown.id;
   setRecipes(data);
@@ -73,6 +73,31 @@ async function loadRecipes(){
   if(prevShown && byId[prevShown] && shown && JSON.stringify(toStored(byId[prevShown]))===JSON.stringify(toStored(shown))){ shown=byId[prevShown]; renderList(); }
   else renderAll();
   resolveUrls();
+  applyFixes();
+}
+/* Corrections ponctuelles des fiches, appliquées une seule fois pour tout le compte. */
+const FIXES = [
+  {id:'2026-11-07-tiramisu-sublime-piedmont', run(){
+    const out=[];
+    const order=(rid,idx)=>{ const r=byId[rid]; if(r&&r.photos.length===4){ const d=toStored(r); d.photos=idx.map(i=>r.photos[i]); out.push([rid,d]); } };
+    order('tiramisu-cadres',[2,3,0,1]); order('tiramisu-verrines',[3,2,1,0]);
+    const s=byId['sublime']; if(s && !s.refs.some(x=>x.id==='glacage-miroir-noir')){ const d=toStored(s); d.refs=[...s.refs,{label:'Glaçage miroir noir',id:'glacage-miroir-noir'}]; out.push(['sublime',d]); }
+    const p=byId['piedmont']; if(p){ const d=toStored(p); d.refs=[{label:'Dacquoise noisette / amande',id:'dacquoise'}, ...p.refs.filter(x=>x.id!=='dacquoise' && !/succ[eè]s/i.test(x.label))]; out.push(['piedmont',d]); }
+    return out; }},
+];
+let fixing=false;
+async function applyFixes(){
+  if(fixing||!editable||!online()||!RECIPES.length) return;
+  fixing=true;
+  try{
+    const {data,error}=await SB.from('recettes').select('id,data').eq('id','meta:fixes');
+    if(error) return;
+    const done=(data&&data[0]&&data[0].data&&data[0].data.applied)||[];
+    const todo=FIXES.filter(f=>!done.includes(f.id)); if(!todo.length) return;
+    for(const f of todo){ for(const [rid,doc] of f.run()) await saveRecipe(rid,doc); done.push(f.id); }
+    await SB.from('recettes').upsert({id:'meta:fixes', data:{applied:done}, updated_at:new Date().toISOString()});
+    renderAll(); resolveUrls();
+  }catch(_){ } finally{ fixing=false; }
 }
 async function saveRecipe(id, doc){
   const {error} = await SB.from('recettes').upsert({id, data:doc, updated_at:new Date().toISOString()});
@@ -380,8 +405,15 @@ function renderEditor(){
       <datalist id="cats">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
     </fieldset>
     <fieldset class="sec"><legend>Photos</legend>
-      <div class="ed-photos">${d.photos.map((p,pi)=>`<div class="ed-photo">${photoTag(p,'')}<button type="button" data-ed="del-photo" data-pi="${pi}" aria-label="Retirer la photo">✕</button></div>`).join('')}
+      <p class="help">La première photo sert de vignette dans la liste. Utilisez les flèches pour changer l’ordre.</p>
+      <div class="ed-photos">${d.photos.map((p,pi)=>`<div class="ed-photo">${photoTag(p,'')}<button type="button" class="ph-del" data-ed="del-photo" data-pi="${pi}" aria-label="Retirer la photo">✕</button>
+          <span class="ph-move"><button type="button" data-ed="photo-left" data-pi="${pi}" aria-label="Avancer la photo" ${pi===0?'disabled':''}>‹</button><button type="button" data-ed="photo-right" data-pi="${pi}" aria-label="Reculer la photo" ${pi===d.photos.length-1?'disabled':''}>›</button></span></div>`).join('')}
         <label class="btn" for="photo-in">+ Ajouter des photos</label></div>
+    </fieldset>
+    <fieldset class="sec"><legend>Voir aussi</legend>
+      <p class="help">Les fiches utilisées dans cette recette (biscuit, glaçage…). Elles apparaissent en liens en haut de la fiche.</p>
+      <div class="checks refs-ed">${[...d.refs.filter(x=>!x.id||!byId[x.id]).map(x=>`<label><input type="checkbox" data-ref-orphan="${esc(x.label)}" checked>${esc(x.label)} <span class="inter">(fiche à ajouter)</span></label>`),
+        ...[...RECIPES].filter(r=>r.id!==d.id).sort((a,b)=>fullName(a).localeCompare(fullName(b),'fr')).map(r=>`<label><input type="checkbox" data-ref="${esc(r.id)}" ${d.refs.some(x=>x.id===r.id)?'checked':''}>${esc(fullName(r))}</label>`)].join('')}</div>
     </fieldset>
     <fieldset class="sec"><legend>Rendement de la fiche</legend>
       <div class="radios" role="radiogroup">
@@ -684,17 +716,19 @@ async function recordProduction(r,c,btn){
   if(isNaN(when)){ toast('Date invalide.'); return; }
   const row={recipe_id:r.id, produced_at:when.toISOString(), data:{...prodSnapshot(r,c), note:$('#prod-note').value.trim()}};
   btn.disabled=true;
-  let sent=false;
-  if(online()){ const {error}=await SB.from('productions').insert(row); sent=!error; }
-  if(!sent){ PENDING.push({...row, tmp:uuid()}); store.set('fiches.pending',PENDING); }
+  const tmp=uuid(); let sent=false;
+  if(online()){ const {error}=await SB.from('recettes').upsert(prodRow(row,tmp)); sent=!error; }
+  if(!sent){ PENDING.push({...row, tmp}); store.set('fiches.pending',PENDING); }
   btn.disabled=false; $('#prodform').hidden=true; $('#prod-note').value='';
   HIST.loaded=false;
   toast(sent?`Production enregistrée : ${qtyLabel(row.data.qty)} de ${row.data.recipe}.`:'Hors connexion : production gardée sur l’appareil, elle sera envoyée au retour du réseau.',5000);
 }
+// Les productions sont rangées avec les recettes, sous un identifiant « prod:… » (aucune table à créer).
+const prodRow=(row,tmp)=>({id:'prod:'+tmp, data:{...row.data, type:'production', recipe_id:row.recipe_id, produced_at:row.produced_at}, updated_at:new Date().toISOString()});
 async function flushPending(){
   if(!PENDING.length||!SB||!USER||!online()) return;
   const left=[];
-  for(const p of PENDING){ const {tmp,...row}=p; const {error}=await SB.from('productions').insert(row); if(error) left.push(p); }
+  for(const p of PENDING){ const {tmp,...row}=p; const {error}=await SB.from('recettes').upsert(prodRow(row,tmp)); if(error) left.push(p); }
   const sent=PENDING.length-left.length; PENDING=left; store.set('fiches.pending',PENDING);
   if(sent){ toast(`${sent} production${sent>1?'s':''} en attente envoyée${sent>1?'s':''}.`); HIST.loaded=false; if(view==='history') loadHistory(); }
 }
@@ -703,10 +737,10 @@ async function loadHistory(){
   HIST.loading=true; HIST.err=''; renderHistory();
   const from=new Date(HIST.from+'T00:00:00'), to=new Date(HIST.to+'T23:59:59.999');
   if(isNaN(from)||isNaN(to)){ HIST.loading=false; HIST.err='Choisissez une date de début et une date de fin.'; renderHistory(); return; }
-  const {data,error}=await SB.from('productions').select('id,recipe_id,produced_at,data').gte('produced_at',from.toISOString()).lte('produced_at',to.toISOString()).order('produced_at',{ascending:false}).limit(5000);
+  const {data,error}=await SB.from('recettes').select('id,data').like('id','prod:%').gte('data->>produced_at',from.toISOString()).lte('data->>produced_at',to.toISOString()).limit(5000);
   HIST.loading=false;
-  if(error){ HIST.err = online()?'L’historique ne peut pas être chargé. Si c’est la première fois, vérifiez que le script « supabase-historique.sql » a bien été lancé dans Supabase.':'Hors connexion : l’historique s’affichera au retour du réseau.'; HIST.rows=[]; }
-  else { HIST.rows=data; HIST.loaded=true; }
+  if(error){ HIST.err = online()?'L’historique ne peut pas être chargé. Vérifiez la connexion et réessayez.':'Hors connexion : l’historique s’affichera au retour du réseau.'; HIST.rows=[]; }
+  else { HIST.rows=data.map(x=>({id:x.id, recipe_id:x.data.recipe_id, produced_at:x.data.produced_at, data:x.data})); HIST.loaded=true; }
   const pend=PENDING.filter(p=>{ const d=new Date(p.produced_at); return d>=from&&d<=to; }).map(p=>({id:'pending:'+p.tmp, recipe_id:p.recipe_id, produced_at:p.produced_at, data:p.data, pending:true}));
   HIST.rows=[...pend,...HIST.rows].sort((a,b)=>b.produced_at.localeCompare(a.produced_at));
   renderHistory();
@@ -783,7 +817,7 @@ async function historyClick(t){
   if(h==='range'){ setRange(t.dataset.v); loadHistory(); return; }
   if(h==='del'){ HIST.confirmDel=t.dataset.id; renderHistory(); return; }
   if(h==='del-no'){ HIST.confirmDel=null; renderHistory(); return; }
-  if(h==='del-yes'){ if(!needOnline()) return; const id=t.dataset.id; const {error}=await SB.from('productions').delete().eq('id',id);
+  if(h==='del-yes'){ if(!needOnline()) return; const id=t.dataset.id; if(!id.startsWith('prod:')) return; const {error}=await SB.from('recettes').delete().eq('id',id);
     HIST.confirmDel=null; if(error){ toast('La suppression a échoué. Réessayez.'); renderHistory(); return; }
     HIST.rows=HIST.rows.filter(p=>p.id!==id); toast('Production supprimée de l’historique.'); renderHistory(); return; }
   if(h==='redo'){ const p=HIST.rows.find(x=>x.id===t.dataset.id); if(!p||!byId[p.recipe_id]) return;
@@ -841,6 +875,8 @@ $('#main').addEventListener('click',e=>{
       case 'down-comp': if(ci<d.comps.length-1) d.comps.splice(ci+1,0,d.comps.splice(ci,1)[0]); break;
       case 'add-fmt': d.yield.formats.push({id:'f'+uid(),label:'',per:1,mass:''}); break;
       case 'del-fmt': d.yield.formats.splice(+t.dataset.fi,1); break;
+      case 'photo-left': { const i=+t.dataset.pi; if(i>0) d.photos.splice(i-1,0,d.photos.splice(i,1)[0]); break; }
+      case 'photo-right': { const i=+t.dataset.pi; if(i<d.photos.length-1) d.photos.splice(i+1,0,d.photos.splice(i,1)[0]); break; }
       case 'del-photo': { const p=d.photos.splice(+t.dataset.pi,1)[0]; const k=editing.newAssets.indexOf(p); if(k>=0){ editing.newAssets.splice(k,1); removePhotos([p]); } else editing.removedAssets.push(p); break; }
       case 'cancel': cancelEdit(); return;
       case 'del': editing.confirmDel=true; break;
@@ -875,6 +911,9 @@ $('#main').addEventListener('input',e=>{
   if(editing){
     if(t.dataset.b){ setPath(editing.draft, t.dataset.b, t.type==='checkbox'?t.checked:t.value);
       if(t.dataset.b==='name'){ const h=$('#ed h1'); if(h) h.textContent=t.value||'Sans nom'; } }
+    if(t.dataset.ref){ const id=t.dataset.ref, refs=editing.draft.refs; const i=refs.findIndex(x=>x.id===id);
+      if(t.checked&&i<0&&byId[id]) refs.push({label:fullName(byId[id]),id}); if(!t.checked&&i>=0) refs.splice(i,1); return; }
+    if(t.dataset.refOrphan!=null && !t.checked){ editing.draft.refs=editing.draft.refs.filter(x=>!(x.label===t.dataset.refOrphan&&(!x.id||!byId[x.id]))); return; }
     if(t.dataset.mousse){ const m=editing.draft.yield.mousse; const i=m.indexOf(t.dataset.mousse); if(t.checked&&i<0) m.push(t.dataset.mousse); if(!t.checked&&i>=0) m.splice(i,1); }
     return;
   }
