@@ -269,7 +269,7 @@ function renderSheet(r){
         <li><button type="button" class="row" data-k="${esc(k)}" aria-pressed="${checked.has(k)}">
           <span class="tick" aria-hidden="true"></span>
           <span class="n">${esc(i.n)}${i.inter?' <span class="inter">(préparée ci-dessus)</span>':''}${i.note?` <span class="inter">(${esc(i.note)})</span>`:''}</span><span class="lead"></span>
-          <span class="q"><span data-q="${ci}:${ii}"></span><small>${i.q==null?'':esc(i.u)}</small><span class="was" data-was="${ci}:${ii}"></span></span>
+          <span class="q"><span data-q="${ci}:${ii}"></span><small>${i.q==null?'':esc(i.u)}</small></span>
         </button></li>`}).join('')}</ul>
     </section>`).join('');
   const jl = r.journal.length;
@@ -317,7 +317,6 @@ function update(r){
     comp.ing.forEach((i,ii)=>{
       const q = i.q==null?null:i.q*cf;
       $(`[data-q="${ci}:${ii}"]`).textContent = q==null?'selon goût':fmt(q);
-      $(`[data-was="${ci}:${ii}"]`).textContent = (q!=null && Math.abs(cf-1)>1e-9) ? 'fiche '+fmt(i.q) : '';
       if(q!=null && !i.inter){ const key=norm(i.n)+'|'+i.u; const a=agg.get(key)||{n:i.n,u:i.u,q:0}; a.q+=q; agg.set(key,a); }
     });
     const ct=compBase(comp)*cf; total+=ct;
