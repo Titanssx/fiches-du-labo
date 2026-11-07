@@ -13,7 +13,8 @@
 <meta name="apple-mobile-web-app-title" content="Fiches labo">
 <meta name="robots" content="noindex">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+<link rel="alternate icon" href="icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,6 +25,7 @@
 
 <div class="login" id="login" hidden>
   <div class="login-card">
+    <img class="login-logo" src="icons/logo.svg" alt="" width="64" height="64">
     <h1>Fiches du labo</h1>
     <p class="login-sub">Votre carnet de recettes de pâtisserie.</p>
     <form id="login-form" novalidate>
@@ -38,7 +40,7 @@
 
 <div class="app" id="app" hidden>
   <aside class="index" id="index">
-    <div class="brand"><h1>Fiches du labo</h1><p id="count">Chargement des recettes…</p></div>
+    <div class="brand"><img class="brand-logo" src="icons/logo.svg" alt="" width="40" height="40"><div><h1>Fiches du labo</h1><p id="count">Chargement des recettes…</p></div></div>
     <div class="addbar" id="addbar" hidden>
       <button type="button" class="btn primary" id="btn-new">+ Nouvelle recette</button>
       <a class="btn navbtn" href="#historique" id="nav-hist" aria-current="false">Historique de production</a>

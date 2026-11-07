@@ -1,9 +1,9 @@
 /* Fiches du labo : fonctionnement hors connexion. Changer VERSION à chaque mise à jour du code. */
-const VERSION = 'fdl-v8';
+const VERSION = 'fdl-v9';
 const PHOTOS = 'fdl-photos';
 const FONTS = 'fdl-fonts';
 const SHELL = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.webmanifest',
-  './vendor/supabase.js', './vendor/jszip.min.js', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+  './vendor/supabase.js', './vendor/jszip.min.js', './icons/logo.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   // cache: 'reload' : on ignore le cache du navigateur pour prendre la version tout juste publiée.
