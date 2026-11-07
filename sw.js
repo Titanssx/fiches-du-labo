@@ -1,12 +1,13 @@
 /* Fiches du labo : fonctionnement hors connexion. Changer VERSION à chaque mise à jour du code. */
-const VERSION = 'fdl-v3';
+const VERSION = 'fdl-v4';
 const PHOTOS = 'fdl-photos';
 const FONTS = 'fdl-fonts';
 const SHELL = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.webmanifest',
   './vendor/supabase.js', './vendor/jszip.min.js', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' : on ignore le cache du navigateur pour prendre la version tout juste publiée.
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
@@ -26,7 +27,8 @@ self.addEventListener('fetch', e => {
 async function fresh(req) {
   const cache = await caches.open(VERSION);
   try {
-    const res = await fetch(req);
+    // no-cache : le navigateur revérifie auprès du serveur à chaque ouverture (rapide si rien n'a changé).
+    const res = await fetch(req, { cache: 'no-cache' });
     if (res.ok) cache.put(req.mode === 'navigate' ? './index.html' : req, res.clone());
     return res;
   } catch (_) {

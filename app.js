@@ -732,5 +732,12 @@ $('#main').addEventListener('submit',e=>{ e.preventDefault(); if(editing) save()
 $('#lb').addEventListener('click',()=>{$('#lb').hidden=true});
 addEventListener('keydown',e=>{ if(e.key==='Escape') $('#lb').hidden=true; });
 
-if('serviceWorker' in navigator && location.protocol==='https:'){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+if('serviceWorker' in navigator && location.protocol==='https:'){
+  // Une nouvelle version publiée prend la main : on recharge une fois pour l'afficher (sauf si une fiche est en cours de saisie).
+  const hadController = !!navigator.serviceWorker.controller; let reloaded=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!hadController||reloaded) return; if(editing){ toast('Nouvelle version disponible : elle s’affichera à la prochaine ouverture.'); return; } reloaded=true; location.reload(); });
+  navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(reg=>{
+    document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') reg.update().catch(()=>{}); });
+  }).catch(()=>{});
+}
 boot();
