@@ -656,7 +656,7 @@ async function exportBackup(){
 async function importBackup(file){
   if(!needOnline()) return;
   let data; try{ data=JSON.parse(await file.text()); }catch(_){ toast('Ce fichier n’est pas une sauvegarde lisible.'); return; }
-  if(!data || data.format!=='fiches-du-labo' || !Array.isArray(data.recipes)){ toast('Ce fichier n’est pas une sauvegarde de Coup de fouet.'); return; }
+  if(!data || data.format!=='fiches-du-labo' || !Array.isArray(data.recipes)){ toast('Ce fichier n’est pas une sauvegarde de Coup De Fouet.'); return; }
   const imgs=data.images||{}; const done={}; let n=0, fail=0;
   for(const rec of data.recipes){
     n++; toast(`Restauration ${n} / ${data.recipes.length}…`, 60000);

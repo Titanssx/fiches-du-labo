@@ -9,7 +9,10 @@
   --line:#E4E0DC;        /* filets */
   --line-strong:#CFC9C3;
   --zebra:#F2EFEC;       /* une ligne sur deux dans les ingrédients */
-  --comp-head:#ECE8E4;   /* en-tête des composants */
+  --comp-head:#4A2E22;   /* bandeau des composants : cacao */
+  --comp-head-ink:#FBF4EC;
+  --comp-head-muted:#D8C2AE;
+  --comp-head-line:#6B4A3A;
   --accent:#4A2E22;      /* cacao : actions, sélection */
   --accent-ink:#FFFFFF;
   --accent-soft:#EFE9E4; /* sélection discrète */
@@ -31,7 +34,7 @@
   :root{
     color-scheme:dark;
     --bg:#131110; --surface:#1C1917; --surface-2:#181514; --ink:#F2EEEA; --muted:#A39A93; --line:#2E2926; --line-strong:#3D3633;
-    --zebra:#24201E; --comp-head:#2A2523;
+    --zebra:#24201E; --comp-head:#5A3A2B; --comp-head-ink:#FBF4EC; --comp-head-muted:#D8C2AE; --comp-head-line:#7A5646;
     --accent:#E2C3A5; --accent-ink:#1D1917; --accent-soft:#2C2522; --ok:#7FBF8C; --danger:#F2847C;
     --panel:#211D1B; --panel-ink:#F5F2EF; --panel-muted:#A39A93; --panel-field:#2E2825; --panel-line:#3A3330; --panel-accent:#E2C3A5;
     --shadow:none;
@@ -145,7 +148,13 @@ a.chip:hover{border-color:var(--ink)}
 /* ---------- Composants ---------- */
 .comps{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px;align-items:start}
 .comp{display:flex;flex-direction:column;min-width:0;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
-.comp header{display:flex;flex-direction:column;gap:4px;padding:14px 16px 12px;border-bottom:2px solid var(--line-strong);background:var(--comp-head)}
+.comp header{display:flex;flex-direction:column;gap:4px;padding:14px 16px 12px;background:var(--comp-head);color:var(--comp-head-ink)}
+.comp header .grp,.comp header .cnote,.comp header .ctot{color:var(--comp-head-muted)}
+.comp header .ctot b{color:var(--comp-head-ink)}
+.comp header .adj{color:var(--comp-head-ink);border-color:var(--comp-head-line);background:transparent}
+.comp header .adj:hover{border-color:var(--comp-head-ink)}
+.comp header .ovr{background:var(--comp-head-ink);color:var(--comp-head)}
+.comp header .adjbox{color:var(--ink)}
 .grp{margin:0;font-size:.7rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .comp h3{font-size:1.12rem;line-height:1.2}
 .cnote{margin:0;color:var(--muted);font-size:.86rem;white-space:pre-line}
