@@ -1,6 +1,6 @@
 {
-  "name": "Fiches du labo",
-  "short_name": "Fiches labo",
+  "name": "Coup de fouet",
+  "short_name": "Coup de fouet",
   "description": "Carnet de recettes de pâtisserie avec calcul des quantités.",
   "lang": "fr",
   "start_url": "./",
