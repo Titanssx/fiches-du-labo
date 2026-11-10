@@ -372,6 +372,7 @@ function readoutWhat(r,c){
 let shown = null;
 function renderSheet(r){
   const c = getCalc(r);
+  if(IS_IOS) loadPdfLib().catch(()=>{});   // prêt pour « Imprimer » dès le premier toucher
   const refs = r.refs.map(x=>x.id&&byId[x.id]?`<a class="chip" href="#${esc(x.id)}">${esc(x.label)} →</a>`:`<span class="chip off">${esc(x.label)} · fiche à ajouter</span>`).join('');
   const photos = r.photos.map((p,i)=>`<button type="button" data-img="${esc(p)}" aria-label="Agrandir la photo ${i+1}">${photoTag(p,fullName(r)+', photo '+(i+1))}</button>`).join('');
   const notes = r.notes.filter(n=>String(n).trim()).map(n=>`<li>${esc(n)}</li>`).join('');
@@ -1197,6 +1198,80 @@ function stockClick(t){
   const y=window.scrollY; renderStock(); window.scrollTo(0,y); renderList();
 }
 
+/* ---------- Impression sur iPhone : PDF + menu de partage ---------- */
+const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints>1);
+let pdfLib=null, pdfLoading=null;
+function loadPdfLib(){
+  if(pdfLib) return Promise.resolve(pdfLib);
+  if(!pdfLoading) pdfLoading=new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='vendor/jspdf.umd.min.js';
+    s.onload=()=>{ pdfLib=window.jspdf&&window.jspdf.jsPDF; pdfLib?res(pdfLib):rej(new Error('pdf')); }; s.onerror=()=>{ pdfLoading=null; rej(new Error('pdf')); }; document.head.appendChild(s); });
+  return pdfLoading;
+}
+// Les polices de base du PDF ne connaissent pas certains signes : on les remplace.
+const pdfTxt = s=>String(s==null?'':s).replace(/[  ]/g,' ').replace(/[’‘]/g,"'").replace(/[“”«»]/g,'"').replace(/œ/g,'oe').replace(/Œ/g,'Oe').replace(/×/g,'x').replace(/…/g,'...').replace(/[–—]/g,'-').replace(/→/g,'>').replace(/[ᵉ]/g,'e').replace(/[^\x20-\x7E -ÿ]/g,'');
+function buildPdf(r,c,info,stamp){
+  const PDF=pdfLib, doc=new PDF({unit:'mm', format:'a4'});
+  const W=210, M=14, R=W-M; let y=18;
+  const need = h=>{ if(y+h>284){ doc.addPage(); y=16; } };
+  const text = (s,x,yy,opt)=>doc.text(pdfTxt(s),x,yy,opt);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(90); text(r.cat.toUpperCase(),M,y); y+=8;
+  doc.setFont('helvetica','bold'); doc.setFontSize(20); doc.setTextColor(0);
+  for(const line of doc.splitTextToSize(pdfTxt(fullName(r)),R-M)){ doc.text(line,M,y); y+=8; }
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(70);
+  text(r.yield?(r.yield.type==='units'?'Fiche pour '+r.yield.label:'Fiche pour une fournée'):'Fiche de base',M,y); y+=4;
+  doc.setDrawColor(0); doc.setLineWidth(0.6); doc.line(M,y,R,y); y+=7;
+  doc.setLineWidth(0.4); doc.roundedRect(M,y-5,R-M,11,1.5,1.5);
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(0); text(fmtF(factor(r,c)),M+4,y+2.2);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10.5); text(readoutWhat(r,c),M+22,y+2); y+=13;
+  const f=factor(r,c); const agg=new Map();
+  const notes=r.notes.filter(n=>String(n).trim());
+  if(notes.length){ doc.setFontSize(9.5); doc.setTextColor(40);
+    for(const n of notes){ const ls=doc.splitTextToSize(pdfTxt('- '+n),R-M); need(ls.length*4.4); ls.forEach(l=>{ doc.text(l,M,y); y+=4.4; }); } y+=3; }
+  for(const comp of r.comps){
+    const cf=compFactor(r,c,comp,f);
+    const noteLines = comp.note ? doc.splitTextToSize(pdfTxt(comp.note),R-M-6) : [];
+    need(12 + noteLines.length*4 + Math.min(comp.ing.length,3)*6.2);
+    doc.setFillColor(238,233,228); doc.rect(M,y-4.5,R-M,7.5,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(11.5); doc.setTextColor(0); text((comp.group?comp.group+' - ':'')+comp.name,M+2,y+0.8);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); text('Total '+fmt(compBase(comp)*cf)+' g',R-2,y+0.8,{align:'right'}); y+=7;
+    if(noteLines.length){ doc.setFontSize(9); doc.setTextColor(70); noteLines.forEach(l=>{ need(4.2); doc.text(l,M+2,y); y+=4.2; }); y+=1; doc.setTextColor(0); }
+    doc.setFontSize(10.5);
+    for(const i of comp.ing){
+      need(6.2);
+      const q = i.q==null ? 'selon goût' : fmt(i.q*cf)+' '+(i.u||'');
+      const label = i.n + (i.note?` (${i.note})`:'');
+      const nl = doc.splitTextToSize(pdfTxt(label), R-M-40);
+      doc.setFont('helvetica','normal'); doc.text(nl[0],M+2,y);
+      doc.setFont('helvetica','bold'); text(q,R-2,y,{align:'right'});
+      if(nl.length>1){ doc.setFont('helvetica','normal'); for(const extra of nl.slice(1)){ y+=4.4; doc.text(extra,M+2,y); } }
+      doc.setDrawColor(190); doc.setLineWidth(0.2); doc.line(M,y+2.2,R,y+2.2); y+=6.2;
+      if(i.q!=null && !i.inter){ const k=norm(i.n)+'|'+i.u; const a=agg.get(k)||{n:i.n,u:i.u,q:0}; a.q+=i.q*cf; agg.set(k,a); }
+    }
+    y+=4;
+  }
+  const list=[...agg.values()].sort((a,b)=>(a.u===b.u?b.q-a.q:a.u==='g'?-1:1));
+  if(list.length){
+    need(14); doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(0); text('À sortir',M,y); y+=6;
+    doc.setFontSize(10);
+    for(const a of list){ need(5.6); doc.setFont('helvetica','normal'); text(a.n,M+2,y); doc.setFont('helvetica','bold'); text(fmt(a.q)+' '+a.u,R-2,y,{align:'right'}); doc.setDrawColor(215); doc.line(M,y+1.8,R,y+1.8); y+=5.6; }
+  }
+  need(10); y+=4; doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(100);
+  doc.splitTextToSize(pdfTxt(info+' - '+stamp),R-M).forEach(l=>{ doc.text(l,M,y); y+=3.6; });
+  return doc.output('blob');
+}
+async function printPdf(r,c,info,stamp){
+  if(!pdfLib){ toast('Préparation de l’impression… touchez à nouveau « Imprimer la recette » dans un instant.'); loadPdfLib().catch(()=>toast('L’impression n’a pas pu se préparer. Vérifiez la connexion.')); return; }
+  let blob; try{ blob=buildPdf(r,c,info,stamp); }catch(e){ toast('Le PDF n’a pas pu être créé.'); return; }
+  const file=new File([blob], `${slug(fullName(r))||'recette'}.pdf`, {type:'application/pdf'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:fullName(r)}); return; }
+    catch(e){ if(e && e.name==='AbortError') return; }
+  }
+  const url=URL.createObjectURL(blob); const w=window.open(url,'_blank');
+  if(!w) location.href=url;
+  toast('Dans l’aperçu du PDF, touchez Partager puis Imprimer.', 6000);
+}
+
 /* ---------- Navigation ---------- */
 function setTab(k){ document.querySelectorAll('#tabs [data-tab], #bottombar [data-tab], .gearbtn').forEach(a=>a.setAttribute('aria-current', String(a.dataset.tab===k))); document.body.dataset.tab=k; }
 const SET = {adding:false, err:'', confirm:null, showLink:null};
@@ -1356,9 +1431,10 @@ $('#main').addEventListener('click',e=>{
   if(t.id==='btn-print'){
     const f=factor(r,c), d=new Date();
     const info=`Production : ${readoutWhat(r,c)} · coefficient ${fmtF(f)} · poids total ${$('#tot').textContent.replace(/^Poids total\s*/,'').split(' · ')[0]}`;
-    $('#printinfo').textContent = info + ` — imprimé le ${d.toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})} · Coup De Fouet`;
-    document.querySelector('.sheet .head').setAttribute('data-print', info);
-    setTimeout(()=>window.print(), 50); return; }
+    const stamp=`imprimé le ${d.toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})} · Coup De Fouet`;
+    $('#printinfo').textContent = info + ' — ' + stamp;
+    if(IS_IOS){ printPdf(r,c,info,stamp); return; }   // iOS ignore window.print() dans une appli installée
+    window.print(); return; }
   if(t.id==='uncheck'){ [...checked].filter(k=>k.startsWith(r.id+'|')).forEach(k=>checked.delete(k)); saveChecked(); document.querySelectorAll('.row').forEach(b=>b.setAttribute('aria-pressed','false')); return; }
   if(t.dataset.img){ const u=photoSrc(t.dataset.img); if(!u) return; const lb=$('#lb'); lb.querySelector('img').src=u; lb.hidden=false; return; }
 });
