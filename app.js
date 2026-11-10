@@ -1159,7 +1159,7 @@ function stockClick(t){
 }
 
 /* ---------- Navigation ---------- */
-function setTab(k){ document.querySelectorAll('#tabs [data-tab], #bottombar [data-tab]').forEach(a=>a.setAttribute('aria-current', String(a.dataset.tab===k))); document.body.dataset.tab=k; }
+function setTab(k){ document.querySelectorAll('#tabs [data-tab], #bottombar [data-tab], .gearbtn').forEach(a=>a.setAttribute('aria-current', String(a.dataset.tab===k))); document.body.dataset.tab=k; }
 const SET = {adding:false, err:'', confirm:null, showLink:null};
 function renderSettings(){
   const n=RECIPES.length;
