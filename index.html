@@ -65,10 +65,17 @@
     </div>
   </aside>
   <main class="main" id="main"></main>
+  <nav class="bottombar" id="bottombar" aria-label="Menu">
+    <a href="#" data-tab="recettes" aria-current="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4z"/><path d="M5 17a3 3 0 0 1 3-3h10"/><path d="M9 8h5"/></svg><span>Recettes</span></a>
+    <a href="#ingredients" data-tab="ingredients" aria-current="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-1.5 11a2 2 0 0 1-2 1.7h-9a2 2 0 0 1-2-1.7L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg><span>Ingrédients</span><i class="badge" id="stock-badge-m" hidden></i></a>
+    <a href="#historique" data-tab="historique" aria-current="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Historique</span></a>
+    <a href="#reglages" data-tab="reglages" aria-current="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/></svg><span>Réglages</span></a>
+  </nav>
 </div>
 <div id="lb" hidden><img alt=""></div>
 <div id="toast" role="status" hidden></div>
 <input type="file" id="photo-in" accept="image/*" multiple class="vh">
+<input type="file" id="photo-quick" accept="image/*" multiple class="vh">
 
 <script src="config.js"></script>
 <script src="vendor/supabase.js"></script>

@@ -179,6 +179,20 @@ function renderList(){
   $('#cats').innerHTML = [['Tout',RECIPES.length],...cats.map(c=>[c,RECIPES.filter(r=>r.cat===c).length]),...(nMiss?[['Manque',nMiss]]:[])]
     .map(([c,n])=>`<button type="button" class="catchip${c==='Manque'?' warn':''}" data-cat="${esc(c)}" aria-pressed="${CAT===c}">${c==='Manque'?'Il manque un ingrédient':esc(c)} <span>${n}</span></button>`).join('');
   const match = r=> !q || norm(fullName(r)).includes(q) || r.comps.some(c=>norm(c.name).includes(q)||c.ing.some(i=>norm(i.n).includes(q)));
+  // Téléphone : accueil en tuiles de catégories, puis liste de la catégorie choisie
+  if(!isDesktop() && !q && CAT==='Tout'){
+    const tile = (c,n,extra)=>{
+      const rs = c==='Manque' ? RECIPES.filter(r=>missingFor(r).length) : RECIPES.filter(r=>r.cat===c);
+      const withPhoto = rs.find(r=>r.photos[0] && photoSrc(r.photos[0]));
+      const miss = c==='Manque' ? 0 : rs.filter(r=>missingFor(r).length).length;
+      return `<button type="button" class="ctile${c==='Manque'?' warn':''}${withPhoto?' has-photo':''}" data-cat="${esc(c)}">
+        ${withPhoto?photoTag(withPhoto.photos[0],'','class="ctile-img" loading="lazy"'):''}
+        <span class="ctile-txt"><b>${c==='Manque'?'Il manque un ingrédient':esc(c)}</b><small>${n} recette${n>1?'s':''}${miss?` · <em>${miss} en manque</em>`:''}</small></span></button>`;
+    };
+    $('#list').innerHTML = `<div class="ctiles">${cats.map(c=>tile(c,RECIPES.filter(r=>r.cat===c).length)).join('')}${nMiss?tile('Manque',nMiss):''}</div>`;
+    return;
+  }
+  const mobileHead = (!isDesktop() && !q) ? `<div class="mhead"><button type="button" class="mback" data-cat="Tout">‹ Catégories</button><h2>${CAT==='Manque'?'Il manque un ingrédient':esc(CAT)}</h2></div>` : '';
   const keep = r=> q ? true : CAT==='Tout' ? true : CAT==='Manque' ? missingFor(r).length>0 : r.cat===CAT;
   let html='';
   for(const cat of cats){
@@ -191,7 +205,7 @@ function renderList(){
       return `<a class="item${miss.length?' has-miss':''}" href="#${esc(r.id)}" aria-current="${r.id===cur}">${th}<span><b>${esc(fullName(r))}</b>${sub}</span>${miss.length?`<span class="missdot" aria-label="Il manque ${miss.length} ingrédient${miss.length>1?'s':''}">${miss.length}</span>`:''}</a>`;
     }).join('')+`</div>`;
   }
-  $('#list').innerHTML = html || `<p class="empty">${q?`Aucune recette ne contient « ${esc($('#q').value)} ».`:'Aucune recette dans cette catégorie.'}</p>`;
+  $('#list').innerHTML = mobileHead + (html || `<p class="empty">${q?`Aucune recette ne contient « ${esc($('#q').value)} ».`:'Aucune recette dans cette catégorie.'}</p>`);
 }
 
 /* ---------- Calcul ---------- */
@@ -283,13 +297,13 @@ function renderSheet(r){
     </section>`).join('');
   const jl = r.journal.length;
   $('#main').innerHTML = `<article class="sheet">
-    <button type="button" class="back" id="back">← Toutes les recettes</button>
+    <button type="button" class="back" id="back">‹ Retour</button>
     <div class="head">
       <div><p class="eyebrow">${esc(r.cat)}</p><h1>${esc(fullName(r))}</h1><p class="yield">${r.yield?'Fiche pour '+esc(r.yield.type==='units'?r.yield.label:'une fournée · '+yieldLabel(r)):'Fiche de base'} · ${fmt(totalBase(r))} g au total</p></div>
       <div class="head-side">${editable?`<button type="button" class="btn" id="btn-edit">Modifier la fiche</button>`:''}${refs?`<div class="refs"><span class="l">Voir aussi</span>${refs}</div>`:''}</div>
     </div>
     ${(()=>{ const m=missingFor(r); return m.length?`<div class="missbanner" role="status"><b>Il te manque ${m.length>1?m.length+' ingrédients':'un ingrédient'} pour cette recette</b><span>${esc(m.map(x=>x.n).join(', '))} : marqué${m.length>1?'s':''} épuisé${m.length>1?'s':''}.</span><a href="#ingredients" class="linkbtn">Voir les ingrédients</a></div>`:''; })()}
-    ${photos?`<div class="photos">${photos}</div>`:''}
+    ${photos||editable?`<div class="photos">${photos}${editable?`<label class="addphoto${photos?'':' empty'}" for="photo-quick"><span aria-hidden="true">+</span>${photos?'Photo':'Ajouter une photo de la recette'}</label>`:''}</div>`:''}
     <section class="prod" aria-label="Calcul de production">
       <h2>Production <small>Toutes les quantités se recalculent en direct</small></h2>
       <div class="modes" role="group" aria-label="Mode de calcul">${modesFor(r).map(([k,l])=>`<button type="button" data-mode="${k}" aria-pressed="${c.mode===k}">${esc(l)}</button>`).join('')}</div>
@@ -506,20 +520,46 @@ async function deleteRecipe(){
   store.set('fiches.cache',{user:USER.id, at:Date.now(), rows:RECIPES.map(x=>({id:x.id,data:toStored(x)}))});
   editing=null; toast('Fiche supprimée'); shown=null; location.hash=''; route();
 }
+/* Réduit la photo (1 400 px, JPEG). En cas d'échec ou de lenteur, la photo d'origine est envoyée telle quelle. */
+function loadImg(blob){ return new Promise((res,rej)=>{ const u=URL.createObjectURL(blob), im=new Image(); im.onload=()=>{ URL.revokeObjectURL(u); res(im); }; im.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error('image')); }; im.src=u; }); }
+async function shrinkTry(blob){
+  let src; try{ src = await createImageBitmap(blob); }catch(_){ src = await loadImg(blob); }
+  const w=src.width||src.naturalWidth, h=src.height||src.naturalHeight; if(!w||!h) throw new Error('taille');
+  const s = Math.min(1, 1400/Math.max(w,h));
+  const cv = document.createElement('canvas'); cv.width=Math.round(w*s); cv.height=Math.round(h*s);
+  cv.getContext('2d').drawImage(src,0,0,cv.width,cv.height);
+  const out = await new Promise(res=>cv.toBlob(res,'image/jpeg',0.82));
+  if(!out) throw new Error('jpeg'); return out;
+}
 async function shrink(blob){
-  const bmp = await createImageBitmap(blob);
-  const s = Math.min(1, 1400/Math.max(bmp.width,bmp.height));
-  const cv = document.createElement('canvas'); cv.width=Math.round(bmp.width*s); cv.height=Math.round(bmp.height*s);
-  cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
-  return await new Promise(res=>cv.toBlob(res,'image/jpeg',0.82));
+  try{ return await Promise.race([shrinkTry(blob), new Promise((_,rej)=>setTimeout(()=>rej(new Error('lent')), 8000))]); }
+  catch(_){ return blob; }
 }
 async function uploadPhoto(blob, raw){
   const body = raw ? blob : await shrink(blob);
-  const path = `${USER.id}/${uuid()}.jpg`;
-  const {error} = await SB.storage.from('photos').upload(path, body, {contentType:'image/jpeg', upsert:false});
+  const type = body.type && body.type.startsWith('image/') ? body.type : 'image/jpeg';
+  const ext = {'image/png':'png','image/webp':'webp','image/gif':'gif','image/heic':'heic','image/heif':'heif'}[type] || 'jpg';
+  const path = `${USER.id}/${uuid()}.${ext}`;
+  const {error} = await SB.storage.from('photos').upload(path, body, {contentType:type, upsert:false});
   if(error) throw error;
   return 'sb:'+path;
 }
+/* Ajout rapide de photos depuis la fiche, sans ouvrir le formulaire */
+$('#photo-quick').addEventListener('change',async ev=>{
+  const files=[...ev.target.files]; ev.target.value='';
+  const r=shown; if(!r||!files.length||editing) return;
+  if(!needOnline()) return;
+  toast(files.length>1?`Envoi de ${files.length} photos…`:'Envoi de la photo…', 60000);
+  const added=[];
+  for(const f of files){ try{ added.push(await uploadPhoto(f)); }catch(_){ } }
+  if(!added.length){ toast('La photo n’a pas pu être envoyée. Vérifiez la connexion et réessayez.'); return; }
+  try{
+    const doc=toStored(byId[r.id]||r); doc.photos=[...doc.photos, ...added];
+    const nr=await saveRecipe(r.id, doc);
+    await resolveUrls(); if(shown&&shown.id===r.id){ shown=nr; renderSheet(nr); } renderList();
+    toast(added.length>1?`${added.length} photos ajoutées.`:'Photo ajoutée.');
+  }catch(_){ await removePhotos(added); toast('La photo n’a pas pu être enregistrée. Réessayez.'); }
+});
 $('#photo-in').addEventListener('change',async ev=>{
   if(!editing) return; const files=[...ev.target.files]; ev.target.value='';
   if(!needOnline()) return;
@@ -843,7 +883,8 @@ async function historyClick(t){
 }
 
 /* ---------- Ingrédients : stock et commande ---------- */
-let CAT = store.get('fiches.cat','Tout');
+const isDesktop = ()=>matchMedia('(min-width: 900px)').matches;
+let CAT = isDesktop() ? store.get('fiches.cat','Tout') : 'Tout';
 const STOCK_CATS = window.FDL_STOCK_CATS || [];
 let STOCK = store.get('fiches.stock', {s:{}, custom:[]});
 let stockDirty = store.get('fiches.stockDirty', false);
@@ -878,7 +919,8 @@ function usage(){
   return USAGE;
 }
 function stockCounts(){ let out=0, order=0; for(const id in STOCK.s){ if(STOCK.s[id].out) out++; if(STOCK.s[id].order) order++; } return {out, order}; }
-function updateBadge(){ const {out,order}=stockCounts(); const b=$('#stock-badge'); if(!b) return; const n=out||order; b.hidden=!n; b.textContent=n; b.className='badge'+(out?' out':''); b.title=`${out} épuisé${out>1?'s':''}, ${order} à commander`; }
+function updateBadge(){ const {out,order}=stockCounts(); const n=out||order;
+  for(const b of [$('#stock-badge'),$('#stock-badge-m')]){ if(!b) continue; b.hidden=!n; b.textContent=n; b.className='badge'+(out?' out':''); b.title=`${out} épuisé${out>1?'s':''}, ${order} à commander`; } }
 async function loadStock(){
   if(!SB||!USER||!online()) return;
   if(stockDirty){ await saveStock(); return; }
@@ -967,9 +1009,29 @@ function stockClick(t){
 }
 
 /* ---------- Navigation ---------- */
-function setTab(k){ document.querySelectorAll('#tabs [data-tab]').forEach(a=>a.setAttribute('aria-current', String(a.dataset.tab===k))); document.body.dataset.tab=k; }
+function setTab(k){ document.querySelectorAll('#tabs [data-tab], #bottombar [data-tab]').forEach(a=>a.setAttribute('aria-current', String(a.dataset.tab===k))); document.body.dataset.tab=k; }
+function renderSettings(){
+  const n=RECIPES.length;
+  $('#main').innerHTML=`<article class="sheet settings">
+    <div class="head"><div><p class="eyebrow">Coup De Fouet</p><h1>Réglages</h1><p class="yield">Connecté : ${esc(USER&&USER.email||'')}</p></div></div>
+    <section class="setgroup"><h2>Mes recettes</h2>
+      <button type="button" class="setrow" data-set="new"><b>Nouvelle recette</b><span>Créer une fiche à la main</span></button>
+      <button type="button" class="setrow" data-set="docx"><b>Importer une fiche Word</b><span>L’appli lit le fichier .docx et pré-remplit le formulaire</span></button>
+    </section>
+    <section class="setgroup"><h2>Sauvegarde</h2>
+      <button type="button" class="setrow" data-set="backup"><b>Sauvegarder mes recettes</b><span>Télécharge un fichier avec les ${n} fiches et leurs photos</span></button>
+      <button type="button" class="setrow" data-set="restore"><b>Restaurer une sauvegarde</b><span>Ajoute ou remplace les fiches à partir d’un fichier de sauvegarde</span></button>
+    </section>
+    <section class="setgroup"><h2>Compte</h2>
+      <button type="button" class="setrow danger" data-set="logout"><b>Se déconnecter</b><span>Il faudra saisir à nouveau l’email et le mot de passe</span></button>
+    </section>
+  </article>`;
+}
 function route(){
   if(editing){ renderEditor(); return; }
+  if(location.hash==='#reglages' && editable){
+    view='settings'; shown=null; setTab('reglages'); renderList(); $('#app').classList.add('is-sheet'); renderSettings(); window.scrollTo(0,0); return;
+  }
   if(location.hash==='#ingredients' && editable){
     view='stock'; shown=null; setTab('ingredients'); renderList(); $('#app').classList.add('is-sheet');
     renderStock(); window.scrollTo(0,0); return;
@@ -996,6 +1058,11 @@ addEventListener('hashchange',()=>{
 });
 $('#q').addEventListener('input',renderList);
 $('#cats').addEventListener('click',e=>{ const b=e.target.closest('[data-cat]'); if(!b) return; CAT=b.dataset.cat; store.set('fiches.cat',CAT); renderList(); });
+$('#list').addEventListener('click',e=>{ const b=e.target.closest('button[data-cat]'); if(!b) return; CAT=b.dataset.cat; renderList(); window.scrollTo(0,0); });
+$('#bottombar').addEventListener('click',e=>{ const a=e.target.closest('[data-tab]'); if(!a) return;
+  if(a.dataset.tab==='recettes'){ e.preventDefault(); if(editing){ toast('Enregistrez ou annulez la fiche en cours.'); return; }
+    if(location.hash && location.hash!=='#'){ location.hash=''; } else { CAT='Tout'; $('#q').value=''; renderList(); } window.scrollTo(0,0); } });
+matchMedia('(min-width: 900px)').addEventListener('change',()=>{ if(!editing) route(); });
 $('#main').addEventListener('input',e=>{ if(view==='stock' && e.target.id==='s-q'){ SV.q=e.target.value; const pos=e.target.selectionStart; renderStock(); const i=$('#s-q'); i.focus(); try{ i.setSelectionRange(pos,pos); }catch(_){} } });
 $('#main').addEventListener('keydown',e=>{ if(view==='stock' && e.target.id==='s-new' && e.key==='Enter'){ e.preventDefault(); const b=document.querySelector('[data-s="addok"]'); if(b) b.click(); } });
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && USER && online() && !editing && Date.now()-lastLoad>30000) loadRecipes(); });
@@ -1027,6 +1094,13 @@ $('#main').addEventListener('click',e=>{
   }
   if(view==='history'){ if(t.id==='back'){ location.hash=''; return; } historyClick(t); return; }
   if(view==='stock'){ if(t.id==='back'){ location.hash=''; return; } stockClick(t); return; }
+  if(view==='settings'){ const a=t.dataset.set; if(!a) return;
+    if(a==='new'){ location.hash=''; setTimeout(()=>$('#btn-new').click(),0); }
+    else if(a==='docx') $('#docx').click();
+    else if(a==='backup') $('#btn-backup').click();
+    else if(a==='restore') $('#restore-in').click();
+    else if(a==='logout') $('#btn-logout').click();
+    return; }
   const r=shown; if(!r) return; const c=getCalc(r);
   if(t.id==='back'){ location.hash=''; return; }
   if(t.id==='btn-edit'){ startEdit(r); return; }
