@@ -245,7 +245,7 @@ async function signedIn(user){
 function signedOut(){
   editable=false; RECIPES=[]; byId={}; shown=null; editing=null;
   store.del('fiches.cache'); store.del('fiches.urls'); URLS={};
-  store.del('fiches.stock'); store.del('fiches.stockPending'); STOCK={s:{},custom:[]}; stockPending={}; MEMBERS=[];
+  store.del('fiches.stock'); store.del('fiches.stockPending'); store.del('fiches.statPending'); STOCK={s:{},custom:[],stats:{}}; stockPending={}; statPending={}; MEMBERS=[];
   showApp(false); $('#login-form').hidden=false; $('#setup-msg').hidden=true;
 }
 $('#login-form').addEventListener('submit',async e=>{
@@ -1043,12 +1043,15 @@ async function loadStockTeam(){
     }
   }
   const s={}, custom=[];
+  const stats={};
   for(const r of data){
+    if(r.item_id.startsWith('stat:')){ stats[r.item_id.slice(5)]={n:r.cat||0, pin:!!r.commander}; continue; }
     if(r.name) custom.push({id:r.item_id, n:r.name, c:r.cat==null?0:r.cat});
     if(r.epuise||r.commander) s[r.item_id]={out:r.epuise, order:r.commander, by:r.updated_by||'', t:Date.parse(r.updated_at)||0};
   }
   for(const id in stockPending){ if(STOCK.s[id]) s[id]=STOCK.s[id]; else delete s[id]; }   // garder les changements pas encore envoyés
-  STOCK={s, custom}; store.set('fiches.stock',STOCK); buildKeys();
+  for(const id in statPending){ if(STOCK.stats&&STOCK.stats[id]) stats[id]=STOCK.stats[id]; }
+  STOCK={s, custom, stats}; store.set('fiches.stock',STOCK); buildKeys();
   updateBadge(); if(view==='stock') renderStock(); else renderAll();
 }
 function stockRow(id){
@@ -1063,11 +1066,11 @@ async function pushItem(id, del){
   if(!error){ delete stockPending[id]; store.set('fiches.stockPending',stockPending); }
   else toast('Le changement n’a pas pu être enregistré. Il sera renvoyé plus tard.');
 }
-async function flushStock(){ for(const id of Object.keys(stockPending)) await pushItem(id, stockPending[id]==='del'); }
+async function flushStock(){ for(const id of Object.keys(stockPending)) await pushItem(id, stockPending[id]==='del'); for(const id of Object.keys(statPending)) await pushStat(id); }
 async function loadStockLegacy(){
   const {data,error}=await SB.from('recettes').select('id,data').eq('id','meta:stock');
   if(error) return;
-  const d=data&&data[0]&&data[0].data; if(d){ STOCK={s:d.s||{}, custom:d.custom||[]}; store.set('fiches.stock',STOCK); buildKeys(); }
+  const d=data&&data[0]&&data[0].data; if(d){ STOCK={s:d.s||{}, custom:d.custom||[], stats:d.stats||{}}; store.set('fiches.stock',STOCK); buildKeys(); }
   updateBadge(); if(view==='stock') renderStock(); else renderAll();
 }
 let stockTimer=null;
@@ -1080,7 +1083,26 @@ async function saveStock(){
   const {error}=await SB.from('recettes').upsert({id:'meta:stock', data:STOCK, updated_at:new Date().toISOString()});
   if(!error){ stockDirty=false; store.set('fiches.stockDirty',false); }
 }
+/* Favoris : nombre de passages « à commander » et épinglage manuel.
+   En mode équipe, rangés dans la table stock sous l'identifiant « stat:<produit> » (cat = compteur, commander = épinglé). */
+const FAV_MIN = 3;
+let statPending = store.get('fiches.statPending', {});
+const statOf = id=> (STOCK.stats||{})[id] || {n:0, pin:false};
+function setStat(id, patch){
+  STOCK.stats = STOCK.stats || {};
+  STOCK.stats[id] = {...statOf(id), ...patch};
+  if(TEAM){ store.set('fiches.stock',STOCK); pushStat(id); } else touchStock();
+}
+async function pushStat(id){
+  statPending[id]=1; store.set('fiches.statPending',statPending);
+  if(!online()) return;
+  const st=statOf(id);
+  const {error}=await SB.from('stock').upsert({owner:OWNER_ID, item_id:'stat:'+id, name:null, cat:st.n||0, epuise:false, commander:!!st.pin, updated_at:new Date().toISOString(), updated_by:USER&&USER.email||null});
+  if(!error){ delete statPending[id]; store.set('fiches.statPending',statPending); }
+}
+const isFav = it=>{ const st=statOf(it.id); return st.pin || st.n>=FAV_MIN; };
 function setStock(id, patch){
+  if(patch.order && !(STOCK.s[id]||{}).order) setStat(id, {n:statOf(id).n+1});
   const cur={...(STOCK.s[id]||{}), ...patch, t:Date.now(), by:USER&&USER.email||''};
   if(!cur.out && !cur.order) delete STOCK.s[id]; else STOCK.s[id]=cur;
   if(TEAM){ store.set('fiches.stock',STOCK); updateBadge(); pushItem(id); } else touchStock();
@@ -1098,8 +1120,10 @@ function renderStock(){
   const pass = it=> (SV.filter==='tout' || (SV.filter==='out'&&stOf(it).out) || (SV.filter==='order'&&stOf(it).order)) && (!q || normKey(it.n).includes(q));
   const row = it=>{
     const st=stOf(it), used=U[it.id]||[];
+    const fs=statOf(it.id);
     return `<li class="srow${st.out?' is-out':''}${st.order?' is-order':''}">
-      <div class="sname"><b>${esc(it.n)}</b>
+      <div class="sname"><button type="button" class="sstar" data-s="pin" data-id="${esc(it.id)}" aria-pressed="${!!fs.pin}" aria-label="${fs.pin?'Retirer des favoris':'Ajouter aux favoris'}" title="${fs.pin?'Retirer des favoris':'Épingler en favori'}">${fs.pin?'★':'☆'}</button><b>${esc(it.n)}</b>
+        ${fs.n?`<span class="scount">commandé ${fs.n} fois</span>`:''}
         ${used.length?`<button type="button" class="linkbtn suse" data-s="use" data-id="${esc(it.id)}" aria-expanded="${SV.open===it.id}">${used.length} recette${used.length>1?'s':''}</button>`:`<span class="suse none">${it.custom?'ajouté à la main':'aucune recette'}</span>`}
         ${it.custom?`<button type="button" class="linkbtn" data-s="del" data-id="${esc(it.id)}">Retirer</button>`:''}${stockByLabel(st)}</div>
       <div class="sact">
@@ -1111,8 +1135,12 @@ function renderStock(){
     </li>`;
   };
   let groups='';
+  const favs=items.filter(it=>isFav(it) && pass(it)).sort((a,b)=>(statOf(b.id).pin-statOf(a.id).pin)||(statOf(b.id).n-statOf(a.id).n)||a.n.localeCompare(b.n,'fr'));
+  if(favs.length) groups+=`<section class="scat fav"><h3>★ Favoris <span>épinglés et commandés ${FAV_MIN} fois ou plus</span></h3><ul class="slist">${favs.map(row).join('')}</ul></section>`;
+  else if(SV.filter==='tout' && !q) groups+=`<p class="help favhint">☆ Touchez l’étoile d’un produit pour l’épingler en favori. Les produits commandés ${FAV_MIN} fois ou plus remontent ici tout seuls.</p>`;
+  const favIds=new Set(favs.map(x=>x.id));
   STOCK_CATS.forEach((cat,ci)=>{
-    const list=items.filter(it=>it.c===ci && pass(it)).sort((a,b)=>a.n.localeCompare(b.n,'fr'));
+    const list=items.filter(it=>it.c===ci && pass(it) && !favIds.has(it.id)).sort((a,b)=>a.n.localeCompare(b.n,'fr'));
     if(list.length) groups+=`<section class="scat"><h3>${esc(cat)} <span>${list.length}</span></h3><ul class="slist">${list.map(row).join('')}</ul></section>`;
   });
   const toOrder=items.filter(it=>stOf(it).order).sort((a,b)=>a.n.localeCompare(b.n,'fr'));
@@ -1140,6 +1168,7 @@ function stockClick(t){
   switch(s){
     case 'filter': SV.filter=t.dataset.v; break;
     case 'use': SV.open = SV.open===id ? null : id; break;
+    case 'pin': { const pin=!statOf(id).pin; setStat(id,{pin}); toast(pin?`${it.n} : épinglé en favori.`:`${it.n} : retiré des favoris.`); break; }
     case 'out': { const st=stOf(it); setStock(id, st.out?{out:false}:{out:true, order:true}); toast(st.out?`${it.n} : de nouveau en stock.`:`${it.n} : épuisé, ajouté à la liste à commander.`); break; }
     case 'order': setStock(id,{order:!stOf(it).order}); break;
     case 'recu': setStock(id,{out:false, order:false}); toast(`${it.n} : reçu.`); break;

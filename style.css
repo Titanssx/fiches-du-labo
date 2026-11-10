@@ -372,6 +372,14 @@ textarea.inp{min-height:80px;resize:vertical;line-height:1.5}
 .setmember{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 16px;border-top:1px solid var(--line);font-weight:500}
 .setadd{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-top:1px solid var(--line)}
 .sby{font-size:.74rem;color:var(--muted)}
+.sstar{border:0;background:none;padding:0 2px;margin-right:2px;font-size:1.15rem;line-height:1;cursor:pointer;color:var(--line-strong)}
+.sstar:hover{color:var(--accent)}
+.sstar[aria-pressed="true"]{color:#C8874A}
+.scount{font-size:.74rem;color:var(--muted)}
+.scat.fav{border-color:#C8874A}
+.scat.fav h3{background:#C8874A;color:#fff}
+.scat.fav h3 span{color:rgba(255,255,255,.85)}
+.favhint{margin:0}
 .memact{display:flex;gap:12px;align-items:center}
 .install-url{flex-basis:100%;margin:6px 0 0;font-family:var(--f-data);font-size:.78rem;word-break:break-all;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;user-select:all}
 #join-form{display:flex;flex-direction:column;gap:12px;margin-top:8px}
