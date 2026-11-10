@@ -380,6 +380,12 @@ textarea.inp{min-height:80px;resize:vertical;line-height:1.5}
 .scat.fav h3{background:#C8874A;color:#fff}
 .scat.fav h3 span{color:rgba(255,255,255,.85)}
 .favhint{margin:0}
+.sdel{font-size:.76rem;color:var(--muted)}
+.shidden{display:flex;flex-direction:column;gap:8px}
+.shidden > .linkbtn{align-self:flex-start;font-size:.9rem}
+.hlist2{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.hlist2 li{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 16px;border-top:1px solid var(--line);color:var(--muted)}
+.hlist2 li:first-child{border-top:0}
 .memact{display:flex;gap:12px;align-items:center}
 .install-url{flex-basis:100%;margin:6px 0 0;font-family:var(--f-data);font-size:.78rem;word-break:break-all;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;user-select:all}
 #join-form{display:flex;flex-direction:column;gap:12px;margin-top:8px}

@@ -1045,7 +1045,7 @@ async function loadStockTeam(){
   const s={}, custom=[];
   const stats={};
   for(const r of data){
-    if(r.item_id.startsWith('stat:')){ stats[r.item_id.slice(5)]={n:r.cat||0, pin:!!r.commander}; continue; }
+    if(r.item_id.startsWith('stat:')){ stats[r.item_id.slice(5)]={n:r.cat||0, pin:!!r.commander, hide:!!r.epuise}; continue; }
     if(r.name) custom.push({id:r.item_id, n:r.name, c:r.cat==null?0:r.cat});
     if(r.epuise||r.commander) s[r.item_id]={out:r.epuise, order:r.commander, by:r.updated_by||'', t:Date.parse(r.updated_at)||0};
   }
@@ -1087,7 +1087,7 @@ async function saveStock(){
    En mode équipe, rangés dans la table stock sous l'identifiant « stat:<produit> » (cat = compteur, commander = épinglé). */
 const FAV_MIN = 3;
 let statPending = store.get('fiches.statPending', {});
-const statOf = id=> (STOCK.stats||{})[id] || {n:0, pin:false};
+const statOf = id=> (STOCK.stats||{})[id] || {n:0, pin:false, hide:false};
 function setStat(id, patch){
   STOCK.stats = STOCK.stats || {};
   STOCK.stats[id] = {...statOf(id), ...patch};
@@ -1097,10 +1097,10 @@ async function pushStat(id){
   statPending[id]=1; store.set('fiches.statPending',statPending);
   if(!online()) return;
   const st=statOf(id);
-  const {error}=await SB.from('stock').upsert({owner:OWNER_ID, item_id:'stat:'+id, name:null, cat:st.n||0, epuise:false, commander:!!st.pin, updated_at:new Date().toISOString(), updated_by:USER&&USER.email||null});
+  const {error}=await SB.from('stock').upsert({owner:OWNER_ID, item_id:'stat:'+id, name:null, cat:st.n||0, epuise:!!st.hide, commander:!!st.pin, updated_at:new Date().toISOString(), updated_by:USER&&USER.email||null});
   if(!error){ delete statPending[id]; store.set('fiches.statPending',statPending); }
 }
-const isFav = it=>{ const st=statOf(it.id); return st.pin || st.n>=FAV_MIN; };
+const isFav = it=>{ const st=statOf(it.id); return !st.hide && (st.pin || st.n>=FAV_MIN); };
 function setStock(id, patch){
   if(patch.order && !(STOCK.s[id]||{}).order) setStat(id, {n:statOf(id).n+1});
   const cur={...(STOCK.s[id]||{}), ...patch, t:Date.now(), by:USER&&USER.email||''};
@@ -1115,7 +1115,7 @@ function stockByLabel(st){
   return `<span class="sby">par ${esc(who)} ${esc(when)}</span>`;
 }
 function renderStock(){
-  const items=allItems(), U=usage(), {out,order}=stockCounts();
+  const every=allItems(), items=every.filter(it=>!statOf(it.id).hide), hidden=every.filter(it=>statOf(it.id).hide).sort((a,b)=>a.n.localeCompare(b.n,'fr')), U=usage(), {out,order}=stockCounts();
   const q=normKey(SV.q);
   const pass = it=> (SV.filter==='tout' || (SV.filter==='out'&&stOf(it).out) || (SV.filter==='order'&&stOf(it).order)) && (!q || normKey(it.n).includes(q));
   const row = it=>{
@@ -1125,7 +1125,7 @@ function renderStock(){
       <div class="sname"><button type="button" class="sstar" data-s="pin" data-id="${esc(it.id)}" aria-pressed="${!!fs.pin}" aria-label="${fs.pin?'Retirer des favoris':'Ajouter aux favoris'}" title="${fs.pin?'Retirer des favoris':'Épingler en favori'}">${fs.pin?'★':'☆'}</button><b>${esc(it.n)}</b>
         ${fs.n?`<span class="scount">commandé ${fs.n} fois</span>`:''}
         ${used.length?`<button type="button" class="linkbtn suse" data-s="use" data-id="${esc(it.id)}" aria-expanded="${SV.open===it.id}">${used.length} recette${used.length>1?'s':''}</button>`:`<span class="suse none">${it.custom?'ajouté à la main':'aucune recette'}</span>`}
-        ${it.custom?`<button type="button" class="linkbtn" data-s="del" data-id="${esc(it.id)}">Retirer</button>`:''}${stockByLabel(st)}</div>
+        <button type="button" class="linkbtn sdel" data-s="hide" data-id="${esc(it.id)}" title="Retirer de la liste (vous pourrez le remettre)">Retirer</button>${stockByLabel(st)}</div>
       <div class="sact">
         <button type="button" class="stog out" data-s="out" data-id="${esc(it.id)}" aria-pressed="${!!st.out}">${st.out?'Épuisé':'En stock'}</button>
         <button type="button" class="stog order" data-s="order" data-id="${esc(it.id)}" aria-pressed="${!!st.order}">${st.order?'À commander ✓':'À commander'}</button>
@@ -1155,6 +1155,8 @@ function renderStock(){
     ${SV.filter==='order'&&toOrder.length?`<section class="orderbox"><div class="totals-head"><h2>Liste de commande</h2><span style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn" data-s="copy">Copier la liste</button><button type="button" class="btn" data-s="allrecu">Tout reçu</button></span></div>
       <p>${toOrder.map(it=>esc(it.n)).join(' · ')}</p></section>`:''}
     ${groups||`<p class="empty">${SV.filter==='out'?'Aucun produit épuisé.':SV.filter==='order'?'Rien à commander pour l’instant.':'Aucun produit ne correspond.'}</p>`}
+    ${hidden.length?`<section class="shidden"><button type="button" class="linkbtn" data-s="showhidden" aria-expanded="${!!SV.showHidden}">${SV.showHidden?'▾':'▸'} Produits retirés (${hidden.length})</button>
+      ${SV.showHidden?`<ul class="hlist2">${hidden.map(it=>`<li><span>${esc(it.n)}</span><span class="memact"><button type="button" class="btn sm" data-s="unhide" data-id="${esc(it.id)}">Remettre</button>${it.custom?`<button type="button" class="linkbtn" data-s="del" data-id="${esc(it.id)}">Supprimer définitivement</button>`:''}</span></li>`).join('')}</ul>`:''}</section>`:''}
     <section class="sadd">${SV.adding?`<div class="grid">
         <label class="lab">Nouveau produit<input class="inp" id="s-new" placeholder="ex. Purée de cassis"></label>
         <label class="lab">Rubrique<select class="inp" id="s-newcat">${STOCK_CATS.map((c,i)=>`<option value="${i}">${esc(c)}</option>`).join('')}</select></label></div>
@@ -1168,6 +1170,10 @@ function stockClick(t){
   switch(s){
     case 'filter': SV.filter=t.dataset.v; break;
     case 'use': SV.open = SV.open===id ? null : id; break;
+    case 'hide': { const st=stOf(it); if(st.out||st.order) setStock(id,{out:false,order:false}); setStat(id,{hide:true, pin:false}); if(SV.open===id) SV.open=null;
+      toast(`${it.n} retiré de la liste. Vous le retrouverez en bas, dans « Produits retirés ».`, 5000); break; }
+    case 'unhide': setStat(id,{hide:false}); toast(`${it.n} remis dans la liste.`); break;
+    case 'showhidden': SV.showHidden=!SV.showHidden; break;
     case 'pin': { const pin=!statOf(id).pin; setStat(id,{pin}); toast(pin?`${it.n} : épinglé en favori.`:`${it.n} : retiré des favoris.`); break; }
     case 'out': { const st=stOf(it); setStock(id, st.out?{out:false}:{out:true, order:true}); toast(st.out?`${it.n} : de nouveau en stock.`:`${it.n} : épuisé, ajouté à la liste à commander.`); break; }
     case 'order': setStock(id,{order:!stOf(it).order}); break;
@@ -1182,7 +1188,8 @@ function stockClick(t){
       const nid='u-'+uid(); STOCK.custom=[...(STOCK.custom||[]), {id:nid, n, c:+$('#s-newcat').value}]; SV.adding=false; buildKeys();
       if(TEAM){ store.set('fiches.stock',STOCK); pushItem(nid); } else touchStock(); toast(`${n} ajouté.`); break; }
     case 'del': STOCK.custom=(STOCK.custom||[]).filter(x=>x.id!==id); delete STOCK.s[id]; buildKeys();
-      if(TEAM){ store.set('fiches.stock',STOCK); updateBadge(); pushItem(id,true); } else touchStock(); break;
+      if(STOCK.stats) delete STOCK.stats[id];
+      if(TEAM){ store.set('fiches.stock',STOCK); updateBadge(); pushItem(id,true); pushItem('stat:'+id,true); } else touchStock(); break;
   }
   const y=window.scrollY; renderStock(); window.scrollTo(0,y); renderList();
 }
