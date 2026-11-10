@@ -1,5 +1,5 @@
 /* Fiches du labo : fonctionnement hors connexion. Changer VERSION à chaque mise à jour du code. */
-const VERSION = 'fdl-v15';
+const VERSION = 'fdl-v16';
 const PHOTOS = 'fdl-photos';
 const FONTS = 'fdl-fonts';
 const SHELL = ['./', './index.html', './style.css', './app.js', './ingredients.js', './config.js', './manifest.webmanifest',

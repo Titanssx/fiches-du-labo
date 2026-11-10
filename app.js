@@ -4,6 +4,9 @@ const CFG = window.FDL_CONFIG || {};
 const BASE_CATS = ['Entremets','Verrines','Tartes & desserts','Mousses & crémeux','Inserts & coulis','Glaçages','Crèmes & garnitures','Bases','Cakes & petits gâteaux','Biscuits & sablés','Mignardises & confiserie','Glaces & sorbets','Viennoiseries & boulangerie','Traiteur'];
 let RECIPES = [], byId = {};
 let SB = null, USER = null, editable = false, loadState = 'loading';
+/* Équipe : ROLE = 'owner' (le patron, modifie les recettes) ou 'member' (collègue : consulte, coche le stock, enregistre des productions).
+   TEAM = vrai quand le script « supabase-equipe.sql » a été lancé (tables membres et stock présentes). */
+let ROLE = 'owner', OWNER_ID = null, TEAM = false, MEMBERS = [];
 let editing = null;
 let URLS = {};   // 'sb:chemin' -> {u: url signée, x: expiration}
 
@@ -136,9 +139,36 @@ async function boot(){
   if(session && session.user) signedIn(session.user); else signedOut();
 }
 function showApp(on){ $('#app').hidden=!on; $('#login').hidden=on; }
-function signedIn(user){
-  USER=user; editable=true;
-  showApp(true); $('#addbar').hidden=false; $('#acct').hidden=false; $('#who').textContent=user.email||'';
+function applyRole(){
+  editable = ROLE==='owner';
+  $('#addbar').hidden = !editable;
+  document.body.classList.toggle('member', !editable);
+  document.querySelectorAll('.owner-only').forEach(el=>el.hidden=!editable);
+}
+async function detectRole(){
+  if(!SB||!USER||!online()) return;
+  const before = ROLE+'|'+OWNER_ID+'|'+TEAM;
+  const {data,error} = await SB.from('membres').select('email,owner').eq('email', String(USER.email||'').toLowerCase());
+  if(error){ TEAM=false; ROLE='owner'; OWNER_ID=USER.id; }
+  else {
+    TEAM=true;
+    const mine = (data||[]).find(m=>m.owner!==USER.id);
+    if(mine){ ROLE='member'; OWNER_ID=mine.owner; } else { ROLE='owner'; OWNER_ID=USER.id; }
+  }
+  store.set('fiches.role',{user:USER.id, role:ROLE, owner:OWNER_ID, team:TEAM});
+  if(ROLE==='owner' && TEAM) loadMembers();
+  if(before !== ROLE+'|'+OWNER_ID+'|'+TEAM){ applyRole(); renderAll(); }
+}
+async function loadMembers(){
+  const {data,error}=await SB.from('membres').select('email,created_at').eq('owner',USER.id).order('created_at');
+  if(!error){ MEMBERS=data||[]; if(view==='settings') renderSettings(); }
+}
+async function signedIn(user){
+  USER=user;
+  const rc=store.get('fiches.role',null);
+  if(rc && rc.user===user.id){ ROLE=rc.role; OWNER_ID=rc.owner; TEAM=!!rc.team; } else { ROLE='owner'; OWNER_ID=user.id; TEAM=false; }
+  showApp(true); applyRole(); $('#acct').hidden=false; $('#who').textContent=user.email||'';
+  if(online()) await detectRole();
   const c=store.get('fiches.cache',null);
   if(c && c.user===user.id){ setRecipes(c.rows||[]); loadState=online()?'loading':'ready'; }
   renderAll();
@@ -147,6 +177,7 @@ function signedIn(user){
 function signedOut(){
   editable=false; RECIPES=[]; byId={}; shown=null; editing=null;
   store.del('fiches.cache'); store.del('fiches.urls'); URLS={};
+  store.del('fiches.stock'); store.del('fiches.stockPending'); STOCK={s:{},custom:[]}; stockPending={}; MEMBERS=[];
   showApp(false); $('#login-form').hidden=false; $('#setup-msg').hidden=true;
 }
 $('#login-form').addEventListener('submit',async e=>{
@@ -309,8 +340,8 @@ function renderSheet(r){
       <div class="modes" role="group" aria-label="Mode de calcul">${modesFor(r).map(([k,l])=>`<button type="button" data-mode="${k}" aria-pressed="${c.mode===k}">${esc(l)}</button>`).join('')}</div>
       <div class="inputs" id="inputs">${inputsHTML(r,c)}</div>
       <div class="readout" aria-live="polite"><span class="coef" id="coef"></span><p id="what"></p><p class="tot" id="tot"></p>
-        ${editable?`<button type="button" class="btn prodbtn" id="prod-open">Enregistrer cette production</button>`:''}</div>
-      ${editable?`<div class="prodform" id="prodform" hidden>
+        ${USER?`<button type="button" class="btn prodbtn" id="prod-open">Enregistrer cette production</button>`:''}</div>
+      ${USER?`<div class="prodform" id="prodform" hidden>
         <label class="lab" for="prod-date">Date et heure<input class="inp" id="prod-date" type="datetime-local"></label>
         <label class="lab" for="prod-note">Remarque <span>facultatif</span><input class="inp" id="prod-note" placeholder="ex. mousse un peu ferme"></label>
         <div class="prodform-actions"><button type="button" class="btn primary" id="prod-save">Enregistrer dans l’historique</button><button type="button" class="btn" id="prod-cancel">Annuler</button></div>
@@ -773,7 +804,7 @@ async function recordProduction(r,c,btn){
   toast(sent?`Production enregistrée : ${qtyLabel(row.data.qty)} de ${row.data.recipe}.`:'Hors connexion : production gardée sur l’appareil, elle sera envoyée au retour du réseau.',5000);
 }
 // Les productions sont rangées avec les recettes, sous un identifiant « prod:… » (aucune table à créer).
-const prodRow=(row,tmp)=>({id:'prod:'+tmp, data:{...row.data, type:'production', recipe_id:row.recipe_id, produced_at:row.produced_at}, updated_at:new Date().toISOString()});
+const prodRow=(row,tmp)=>({id:'prod:'+tmp, owner:OWNER_ID||USER.id, data:{...row.data, type:'production', recipe_id:row.recipe_id, produced_at:row.produced_at}, updated_at:new Date().toISOString()});
 async function flushPending(){
   if(!PENDING.length||!SB||!USER||!online()) return;
   const left=[];
@@ -921,9 +952,51 @@ function usage(){
 function stockCounts(){ let out=0, order=0; for(const id in STOCK.s){ if(STOCK.s[id].out) out++; if(STOCK.s[id].order) order++; } return {out, order}; }
 function updateBadge(){ const {out,order}=stockCounts(); const n=out||order;
   for(const b of [$('#stock-badge'),$('#stock-badge-m')]){ if(!b) continue; b.hidden=!n; b.textContent=n; b.className='badge'+(out?' out':''); b.title=`${out} épuisé${out>1?'s':''}, ${order} à commander`; } }
+/* Stock partagé (mode équipe) : une ligne par produit dans la table « stock ». */
+let stockPending = store.get('fiches.stockPending', {});   // item_id -> 'up' | 'del', en attente de réseau
 async function loadStock(){
   if(!SB||!USER||!online()) return;
+  if(TEAM) return loadStockTeam();
   if(stockDirty){ await saveStock(); return; }
+  return loadStockLegacy();
+}
+async function loadStockTeam(){
+  await flushStock();
+  const {data,error}=await SB.from('stock').select('item_id,name,cat,epuise,commander,updated_at,updated_by');
+  if(error) return;
+  if(!data.length && ROLE==='owner'){   // première fois : reprendre l'ancien stock enregistré avec les recettes
+    const old=await SB.from('recettes').select('data').eq('id','meta:stock');
+    const d=old.data&&old.data[0]&&old.data[0].data;
+    if(d && (Object.keys(d.s||{}).length || (d.custom||[]).length)){
+      STOCK={s:d.s||{}, custom:d.custom||[]};
+      const ids=new Set([...Object.keys(STOCK.s), ...STOCK.custom.map(x=>x.id)]);
+      const {error:e2}=await SB.from('stock').upsert([...ids].map(stockRow));
+      if(!e2) return loadStockTeam();
+    }
+  }
+  const s={}, custom=[];
+  for(const r of data){
+    if(r.name) custom.push({id:r.item_id, n:r.name, c:r.cat==null?0:r.cat});
+    if(r.epuise||r.commander) s[r.item_id]={out:r.epuise, order:r.commander, by:r.updated_by||'', t:Date.parse(r.updated_at)||0};
+  }
+  for(const id in stockPending){ if(STOCK.s[id]) s[id]=STOCK.s[id]; else delete s[id]; }   // garder les changements pas encore envoyés
+  STOCK={s, custom}; store.set('fiches.stock',STOCK); buildKeys();
+  updateBadge(); if(view==='stock') renderStock(); else renderAll();
+}
+function stockRow(id){
+  const st=STOCK.s[id]||{}, cu=(STOCK.custom||[]).find(x=>x.id===id);
+  return {owner:OWNER_ID, item_id:id, name:cu?cu.n:null, cat:cu?cu.c:null, epuise:!!st.out, commander:!!st.order, updated_at:new Date().toISOString(), updated_by:USER&&USER.email||null};
+}
+async function pushItem(id, del){
+  stockPending[id]=del?'del':'up'; store.set('fiches.stockPending',stockPending);
+  if(!online()) return;
+  const q = del ? SB.from('stock').delete().eq('owner',OWNER_ID).eq('item_id',id) : SB.from('stock').upsert(stockRow(id));
+  const {error}=await q;
+  if(!error){ delete stockPending[id]; store.set('fiches.stockPending',stockPending); }
+  else toast('Le changement n’a pas pu être enregistré. Il sera renvoyé plus tard.');
+}
+async function flushStock(){ for(const id of Object.keys(stockPending)) await pushItem(id, stockPending[id]==='del'); }
+async function loadStockLegacy(){
   const {data,error}=await SB.from('recettes').select('id,data').eq('id','meta:stock');
   if(error) return;
   const d=data&&data[0]&&data[0].data; if(d){ STOCK={s:d.s||{}, custom:d.custom||[]}; store.set('fiches.stock',STOCK); buildKeys(); }
@@ -940,9 +1013,16 @@ async function saveStock(){
   if(!error){ stockDirty=false; store.set('fiches.stockDirty',false); }
 }
 function setStock(id, patch){
-  const cur={...(STOCK.s[id]||{}), ...patch, t:Date.now()};
+  const cur={...(STOCK.s[id]||{}), ...patch, t:Date.now(), by:USER&&USER.email||''};
   if(!cur.out && !cur.order) delete STOCK.s[id]; else STOCK.s[id]=cur;
-  touchStock();
+  if(TEAM){ store.set('fiches.stock',STOCK); updateBadge(); pushItem(id); } else touchStock();
+}
+function stockByLabel(st){
+  if(!TEAM || !st.by || !(st.out||st.order)) return '';
+  const who = st.by===(USER&&USER.email) ? 'vous' : st.by.split('@')[0];
+  const d = st.t ? new Date(st.t) : null;
+  const when = d ? (d.toDateString()===new Date().toDateString() ? 'à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : 'le '+d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})) : '';
+  return `<span class="sby">par ${esc(who)} ${esc(when)}</span>`;
 }
 function renderStock(){
   const items=allItems(), U=usage(), {out,order}=stockCounts();
@@ -953,7 +1033,7 @@ function renderStock(){
     return `<li class="srow${st.out?' is-out':''}${st.order?' is-order':''}">
       <div class="sname"><b>${esc(it.n)}</b>
         ${used.length?`<button type="button" class="linkbtn suse" data-s="use" data-id="${esc(it.id)}" aria-expanded="${SV.open===it.id}">${used.length} recette${used.length>1?'s':''}</button>`:`<span class="suse none">${it.custom?'ajouté à la main':'aucune recette'}</span>`}
-        ${it.custom?`<button type="button" class="linkbtn" data-s="del" data-id="${esc(it.id)}">Retirer</button>`:''}</div>
+        ${it.custom?`<button type="button" class="linkbtn" data-s="del" data-id="${esc(it.id)}">Retirer</button>`:''}${stockByLabel(st)}</div>
       <div class="sact">
         <button type="button" class="stog out" data-s="out" data-id="${esc(it.id)}" aria-pressed="${!!st.out}">${st.out?'Épuisé':'En stock'}</button>
         <button type="button" class="stog order" data-s="order" data-id="${esc(it.id)}" aria-pressed="${!!st.order}">${st.order?'À commander ✓':'À commander'}</button>
@@ -995,25 +1075,51 @@ function stockClick(t){
     case 'out': { const st=stOf(it); setStock(id, st.out?{out:false}:{out:true, order:true}); toast(st.out?`${it.n} : de nouveau en stock.`:`${it.n} : épuisé, ajouté à la liste à commander.`); break; }
     case 'order': setStock(id,{order:!stOf(it).order}); break;
     case 'recu': setStock(id,{out:false, order:false}); toast(`${it.n} : reçu.`); break;
-    case 'allrecu': for(const k of Object.keys(STOCK.s)) if(STOCK.s[k].order) setStock(k,{out:false,order:false}); toast('Commande reçue : tout est de nouveau en stock.'); break;
+    case 'allrecu': for(const k of Object.keys(STOCK.s)) if(STOCK.s[k].order) setStock(k,{out:false,order:false}); toast('Commande reçue : tout ce qui était à commander est de nouveau en stock.'); break;
     case 'copy': { const txt=allItems().filter(x=>stOf(x).order).sort((a,b)=>a.n.localeCompare(b.n,'fr')).map(x=>'- '+x.n).join('\n');
       (navigator.clipboard?navigator.clipboard.writeText('À commander :\n'+txt):Promise.reject()).then(()=>toast('Liste copiée : collez-la dans un message.')).catch(()=>toast('La copie n’a pas fonctionné sur cet appareil.')); return; }
     case 'add': SV.adding=true; renderStock(); $('#s-new').focus(); return;
     case 'addno': SV.adding=false; break;
     case 'addok': { const n=$('#s-new').value.trim(); if(!n){ $('#s-new').focus(); return; }
       if(allItems().some(x=>normKey(x.n)===normKey(n))){ toast('Ce produit est déjà dans la liste.'); return; }
-      STOCK.custom=[...(STOCK.custom||[]), {id:'u-'+uid(), n, c:+$('#s-newcat').value}]; SV.adding=false; buildKeys(); touchStock(); toast(`${n} ajouté.`); break; }
-    case 'del': STOCK.custom=(STOCK.custom||[]).filter(x=>x.id!==id); delete STOCK.s[id]; buildKeys(); touchStock(); break;
+      const nid='u-'+uid(); STOCK.custom=[...(STOCK.custom||[]), {id:nid, n, c:+$('#s-newcat').value}]; SV.adding=false; buildKeys();
+      if(TEAM){ store.set('fiches.stock',STOCK); pushItem(nid); } else touchStock(); toast(`${n} ajouté.`); break; }
+    case 'del': STOCK.custom=(STOCK.custom||[]).filter(x=>x.id!==id); delete STOCK.s[id]; buildKeys();
+      if(TEAM){ store.set('fiches.stock',STOCK); updateBadge(); pushItem(id,true); } else touchStock(); break;
   }
   const y=window.scrollY; renderStock(); window.scrollTo(0,y); renderList();
 }
 
 /* ---------- Navigation ---------- */
 function setTab(k){ document.querySelectorAll('#tabs [data-tab], #bottombar [data-tab]').forEach(a=>a.setAttribute('aria-current', String(a.dataset.tab===k))); document.body.dataset.tab=k; }
+const SET = {adding:false, err:'', confirm:null};
 function renderSettings(){
   const n=RECIPES.length;
+  if(!editable){
+    $('#main').innerHTML=`<article class="sheet settings">
+      <div class="head"><div><p class="eyebrow">Coup De Fouet</p><h1>Réglages</h1><p class="yield">Connecté : ${esc(USER&&USER.email||'')}</p></div></div>
+      <section class="setgroup"><h2>Compte équipe</h2>
+        <div class="setinfo">Vous consultez les recettes de l’équipe. Vous pouvez calculer les productions, cocher les ingrédients épuisés ou à commander, et enregistrer l’historique. Seul le responsable modifie les recettes.</div>
+      </section>
+      <section class="setgroup"><h2>Compte</h2>
+        <button type="button" class="setrow danger" data-set="logout"><b>Se déconnecter</b><span>Il faudra saisir à nouveau l’email et le mot de passe</span></button>
+      </section>
+    </article>`;
+    return;
+  }
+  const team = TEAM ? `<section class="setgroup"><h2>Équipe</h2>
+      <div class="setinfo">Les collègues de l’équipe voient vos recettes, cochent le stock et enregistrent des productions. Ils ne peuvent pas modifier les recettes.</div>
+      ${MEMBERS.map(m=>`<div class="setmember"><span>${esc(m.email)}</span>${SET.confirm===m.email?`<span class="confirm">Retirer ? <button type="button" class="btn danger sm" data-set="rm-yes" data-email="${esc(m.email)}">Oui</button><button type="button" class="btn sm" data-set="rm-no">Non</button></span>`:`<button type="button" class="linkbtn" data-set="rm" data-email="${esc(m.email)}">Retirer</button>`}</div>`).join('') || `<div class="setinfo muted">Aucun collègue pour l’instant.</div>`}
+      ${SET.adding?`<div class="setadd"><label class="lab" for="m-email">Email du collègue<input class="inp" id="m-email" type="email" placeholder="prenom@exemple.com" autocomplete="off"></label>
+        <p class="help">Créez aussi son compte dans Supabase (Authentication → Users → Add user, avec « Auto Confirm User »), avec ce même email et le mot de passe que vous lui donnerez.</p>
+        ${SET.err?`<p class="err">${esc(SET.err)}</p>`:''}
+        <div style="display:flex;gap:8px"><button type="button" class="btn primary" data-set="add-ok">Ajouter à l’équipe</button><button type="button" class="btn" data-set="add-no">Annuler</button></div></div>`
+      :`<button type="button" class="setrow" data-set="add"><b>+ Ajouter un collègue</b><span>Il aura son propre email et mot de passe</span></button>`}
+    </section>`
+    : `<section class="setgroup"><h2>Équipe</h2><div class="setinfo">Le partage avec l’équipe n’est pas encore activé : lancez une fois le script « supabase-equipe.sql » dans Supabase.</div></section>`;
   $('#main').innerHTML=`<article class="sheet settings">
     <div class="head"><div><p class="eyebrow">Coup De Fouet</p><h1>Réglages</h1><p class="yield">Connecté : ${esc(USER&&USER.email||'')}</p></div></div>
+    ${team}
     <section class="setgroup"><h2>Mes recettes</h2>
       <button type="button" class="setrow" data-set="new"><b>Nouvelle recette</b><span>Créer une fiche à la main</span></button>
       <button type="button" class="setrow" data-set="docx"><b>Importer une fiche Word</b><span>L’appli lit le fichier .docx et pré-remplit le formulaire</span></button>
@@ -1029,14 +1135,14 @@ function renderSettings(){
 }
 function route(){
   if(editing){ renderEditor(); return; }
-  if(location.hash==='#reglages' && editable){
+  if(location.hash==='#reglages' && USER){
     view='settings'; shown=null; setTab('reglages'); renderList(); $('#app').classList.add('is-sheet'); renderSettings(); window.scrollTo(0,0); return;
   }
-  if(location.hash==='#ingredients' && editable){
+  if(location.hash==='#ingredients' && USER){
     view='stock'; shown=null; setTab('ingredients'); renderList(); $('#app').classList.add('is-sheet');
     renderStock(); window.scrollTo(0,0); return;
   }
-  if(location.hash==='#historique' && editable){
+  if(location.hash==='#historique' && USER){
     view='history'; shown=null; setTab('historique'); renderList(); $('#app').classList.add('is-sheet');
     renderHistory(); window.scrollTo(0,0); if(!HIST.loaded) loadHistory(); return;
   }
@@ -1066,7 +1172,9 @@ matchMedia('(min-width: 900px)').addEventListener('change',()=>{ if(!editing) ro
 $('#main').addEventListener('input',e=>{ if(view==='stock' && e.target.id==='s-q'){ SV.q=e.target.value; const pos=e.target.selectionStart; renderStock(); const i=$('#s-q'); i.focus(); try{ i.setSelectionRange(pos,pos); }catch(_){} } });
 $('#main').addEventListener('keydown',e=>{ if(view==='stock' && e.target.id==='s-new' && e.key==='Enter'){ e.preventDefault(); const b=document.querySelector('[data-s="addok"]'); if(b) b.click(); } });
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && USER && online() && !editing && Date.now()-lastLoad>30000) loadRecipes(); });
-addEventListener('online',()=>{ if(USER){ toast('Connexion rétablie.'); if(stockDirty) saveStock(); loadRecipes(); flushPending(); } });
+addEventListener('online',()=>{ if(USER){ toast('Connexion rétablie.'); if(TEAM) flushStock(); else if(stockDirty) saveStock(); loadRecipes(); flushPending(); } });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && USER && online() && view==='stock') loadStock(); });
+setInterval(()=>{ if(USER && online() && view==='stock' && document.visibilityState==='visible') loadStock(); }, 20000);
 addEventListener('offline',()=>{ if(USER){ toast('Hors connexion : consultation uniquement.'); renderList(); } });
 
 $('#main').addEventListener('click',e=>{
@@ -1095,6 +1203,21 @@ $('#main').addEventListener('click',e=>{
   if(view==='history'){ if(t.id==='back'){ location.hash=''; return; } historyClick(t); return; }
   if(view==='stock'){ if(t.id==='back'){ location.hash=''; return; } stockClick(t); return; }
   if(view==='settings'){ const a=t.dataset.set; if(!a) return;
+    if(a==='add'){ SET.adding=true; SET.err=''; renderSettings(); $('#m-email').focus(); return; }
+    if(a==='add-no'){ SET.adding=false; renderSettings(); return; }
+    if(a==='add-ok'){ const em=$('#m-email').value.trim().toLowerCase();
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ SET.err='Saisissez un email valide.'; renderSettings(); return; }
+      if(em===String(USER.email||'').toLowerCase()){ SET.err='C’est votre propre email.'; renderSettings(); return; }
+      if(!needOnline()) return;
+      SB.from('membres').insert({email:em, owner:USER.id}).then(({error})=>{
+        if(error){ SET.err = /duplicate|unique/i.test(error.message) ? 'Ce collègue fait déjà partie d’une équipe.' : 'L’ajout a échoué : '+error.message; renderSettings(); return; }
+        SET.adding=false; toast(`${em} ajouté à l’équipe.`); loadMembers(); });
+      return; }
+    if(a==='rm'){ SET.confirm=t.dataset.email; renderSettings(); return; }
+    if(a==='rm-no'){ SET.confirm=null; renderSettings(); return; }
+    if(a==='rm-yes'){ if(!needOnline()) return; const em=t.dataset.email;
+      SB.from('membres').delete().eq('email',em).eq('owner',USER.id).then(({error})=>{ SET.confirm=null; if(error){ toast('Le retrait a échoué. Réessayez.'); renderSettings(); return; } toast(`${em} retiré de l’équipe.`); loadMembers(); });
+      return; }
     if(a==='new'){ location.hash=''; setTimeout(()=>$('#btn-new').click(),0); }
     else if(a==='docx') $('#docx').click();
     else if(a==='backup') $('#btn-backup').click();

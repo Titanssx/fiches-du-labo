@@ -359,6 +359,11 @@ textarea.inp{min-height:80px;resize:vertical;line-height:1.5}
 .setrow span{font-size:.84rem;color:var(--muted)}
 .setrow:hover{background:var(--surface-2)}
 .setrow.danger b{color:var(--danger)}
+.setinfo{padding:4px 16px 14px;font-size:.88rem;color:var(--ink);line-height:1.5}
+.setinfo.muted{color:var(--muted)}
+.setmember{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 16px;border-top:1px solid var(--line);font-weight:500}
+.setadd{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-top:1px solid var(--line)}
+.sby{font-size:.74rem;color:var(--muted)}
 
 /* ---------- Ajout rapide de photo ---------- */
 .addphoto{flex:0 0 auto;height:170px;width:130px;border:1.5px dashed var(--line-strong);border-radius:var(--r);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:.85rem;font-weight:500;cursor:pointer;text-align:center;padding:10px;background:var(--surface)}
