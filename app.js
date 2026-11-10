@@ -143,6 +143,11 @@ async function boot(){
   } else { signedOut(); if(invite) showJoin(invite.email); }
 }
 
+/* ---------- Écran fixe : iOS ignore « user-scalable=no », on bloque donc le pincement et le double tap ---------- */
+for(const ev of ['gesturestart','gesturechange','gestureend']) document.addEventListener(ev, e=>e.preventDefault(), {passive:false});
+document.addEventListener('touchmove', e=>{ if(e.touches && e.touches.length>1) e.preventDefault(); }, {passive:false});
+// Le double tap est neutralisé par « touch-action: manipulation » (style.css), sans gêner les touchers rapides sur + et −.
+
 /* ---------- Invitation : lien envoyé par le responsable ---------- */
 const INVITE = (()=>{ try{ const p=new URLSearchParams(location.search); return p.has('invite') ? {email:String(p.get('email')||'').trim().toLowerCase()} : null; }catch(_){ return null; } })();
 const APP_URL = location.origin + location.pathname;

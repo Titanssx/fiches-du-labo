@@ -681,6 +681,18 @@ h1,.head h1,.editor h1,.mhead h2,.login-card h1{font-family:var(--f-serif);font-
 .inp{border-radius:12px}
 .inp:focus{border-color:var(--gold);box-shadow:0 0 0 4px var(--gold-soft)}
 
+/* Bouton « Nouvelle recette » en bas de la liste */
+.addbar-bottom{padding-top:6px}
+.addbar-bottom .btn{width:100%}
+
+/* Écran fixe : pas de zoom au double tap ni au pincement, pas d'effet élastique */
+html,body{overscroll-behavior:none;touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+*{-webkit-tap-highlight-color:transparent}
+@media (max-width:899px){
+  /* 16 px minimum : sinon iOS zoome tout seul quand on touche un champ */
+  input,select,textarea,.inp,.search input,.prod input,.prod select,.stepper input,.adjbox input{font-size:16px!important}
+}
+
 /* Mouvement discret */
 @media (prefers-reduced-motion: no-preference){
   .sheet{animation:fdl-in .35s cubic-bezier(.2,.7,.2,1) both}
