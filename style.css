@@ -322,6 +322,52 @@ textarea.inp{min-height:80px;resize:vertical;line-height:1.5}
 .hnote{font-size:.86rem;font-style:italic;color:var(--ink)}
 .hact{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 
+/* ---------- Impression ---------- */
+.printbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding-top:8px;border-top:1px solid var(--line)}
+.printbar .btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round}
+.printbar .help{font-size:.82rem}
+.printinfo{display:none}
+@page{size:A4;margin:14mm 12mm}
+@media print{
+  :root{color-scheme:light}
+  html,body{background:#fff!important;color:#000}
+  body *{box-shadow:none!important}
+  .index,.bottombar,#toast,#lb,.modal,.back,.head-side .btn,.addphoto,.modes,.inputs,.prodbtn,.prodform,.readout .tot,
+  .adj,.adjbox,.ovr,.jadd,.printbar,#uncheck,.missbanner .linkbtn,.row .tick,.linkbtn[data-note-del],.refs .l{display:none!important}
+  .app{display:block;padding:0!important}
+  .main{padding:0!important}
+  .sheet{max-width:none;gap:10px}
+  .head{padding-bottom:8px;border-bottom:2px solid #000}
+  .head h1{font-size:22pt}
+  .eyebrow,.yield{color:#333}
+  .photos{overflow:visible;flex-wrap:wrap;gap:6px}
+  .photos button,.photos img{height:110px!important;border:0}
+  .prod{display:block;background:#fff;color:#000;border:1.5px solid #000;border-radius:6px;padding:8px 12px}
+  .prod h2{display:none}
+  .readout{border:0!important;padding:0!important;display:flex;flex-direction:row;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .journal:has(> .empty){display:none!important}
+  .comps{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .coef{font-size:16pt;color:#000}
+  .readout p{color:#000}
+  .missbanner{border:1.5px solid #000;background:#fff}
+  .missbanner b{color:#000}
+  .comps{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .comp{border:1px solid #000;break-inside:avoid;page-break-inside:avoid;border-radius:6px}
+  .comp header{background:#fff!important;color:#000!important;border-bottom:1.5px solid #000;padding:6px 10px}
+  .comp header *,.comp header .ctot b{color:#000!important}
+  .comp h3{font-size:12pt}
+  .ing li + li{border-top:1px solid #999}
+  .ing li:nth-child(even) .row{background:#fff!important}
+  .row{padding:4px 10px;color:#000}
+  .row .n,.row .q{font-size:10.5pt;color:#000!important;text-decoration:none!important}
+  .outtag{background:#fff;color:#000;border:1px solid #000}
+  .notes,.journal,.totals{border:1px solid #999;background:#fff;break-inside:avoid;page-break-inside:avoid;padding:8px 12px}
+  .journal h2,.totals h2{font-size:12pt}
+  .totals table{max-width:none}
+  .printinfo{display:block;margin:6px 0 0;font-size:8.5pt;color:#444;border-top:1px solid #999;padding-top:4px}
+  a{color:#000;text-decoration:none}
+}
+
 /* ---------- Barre de menu du bas (téléphone) ---------- */
 .bottombar{display:none}
 @media (max-width:899px){

@@ -429,6 +429,9 @@ function renderSheet(r){
       <p>Ingrédients regroupés pour toute la production, préparations intermédiaires exclues.</p>
       <div class="tablewrap"><table><tbody id="tbody"></tbody></table></div>
     </section>
+    <div class="printbar"><button type="button" class="btn" id="btn-print"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/></svg>Imprimer la recette</button>
+      <span class="help">Les quantités imprimées sont celles affichées dans le bloc Production.</span></div>
+    <p class="printinfo" id="printinfo"></p>
   </article>`;
   update(r);
 }
@@ -1350,6 +1353,12 @@ $('#main').addEventListener('click',e=>{
   if(t.dataset.adj!=null){ const comp=r.comps[t.dataset.adj]; c.open[comp.id]=!c.open[comp.id]; $(`[data-box="${t.dataset.adj}"]`).hidden=!c.open[comp.id]; t.setAttribute('aria-expanded',!!c.open[comp.id]); if(c.open[comp.id]) document.getElementById('ov-'+t.dataset.adj).focus(); return; }
   if(t.dataset.unov!=null){ const comp=r.comps[t.dataset.unov]; delete c.over[comp.id]; document.getElementById('ov-'+t.dataset.unov).value=''; update(r); return; }
   if(t.dataset.k){ const k=t.dataset.k; checked.has(k)?checked.delete(k):checked.add(k); t.setAttribute('aria-pressed',checked.has(k)); saveChecked(); return; }
+  if(t.id==='btn-print'){
+    const f=factor(r,c), d=new Date();
+    const info=`Production : ${readoutWhat(r,c)} · coefficient ${fmtF(f)} · poids total ${$('#tot').textContent.replace(/^Poids total\s*/,'').split(' · ')[0]}`;
+    $('#printinfo').textContent = info + ` — imprimé le ${d.toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})} · Coup De Fouet`;
+    document.querySelector('.sheet .head').setAttribute('data-print', info);
+    setTimeout(()=>window.print(), 50); return; }
   if(t.id==='uncheck'){ [...checked].filter(k=>k.startsWith(r.id+'|')).forEach(k=>checked.delete(k)); saveChecked(); document.querySelectorAll('.row').forEach(b=>b.setAttribute('aria-pressed','false')); return; }
   if(t.dataset.img){ const u=photoSrc(t.dataset.img); if(!u) return; const lb=$('#lb'); lb.querySelector('img').src=u; lb.hidden=false; return; }
 });
