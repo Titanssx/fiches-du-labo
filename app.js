@@ -398,8 +398,9 @@ function renderSheet(r){
   const jl = r.journal.length;
   $('#main').innerHTML = `<article class="sheet">
     <button type="button" class="back" id="back">‹ Retour</button>
-    <div class="head">
-      <div><p class="eyebrow">${esc(r.cat)}</p><h1>${esc(fullName(r))}</h1><p class="yield">${r.yield?'Fiche pour '+esc(r.yield.type==='units'?r.yield.label:'une fournée · '+yieldLabel(r)):'Fiche de base'} · ${fmt(totalBase(r))} g au total</p></div>
+    <div class="head${r.photos[0]?' has-hero':''}">
+      ${r.photos[0]?`<div class="hero-bg" aria-hidden="true">${photoTag(r.photos[0],'')}</div>`:''}
+      <div class="head-main"><p class="eyebrow">${esc(r.cat)}</p><h1>${esc(fullName(r))}</h1><p class="yield">${r.yield?'Fiche pour '+esc(r.yield.type==='units'?r.yield.label:'une fournée · '+yieldLabel(r)):'Fiche de base'} · ${fmt(totalBase(r))} g au total</p></div>
       <div class="head-side">${editable?`<button type="button" class="btn" id="btn-edit">Modifier la fiche</button>`:''}${refs?`<div class="refs"><span class="l">Voir aussi</span>${refs}</div>`:''}</div>
     </div>
     ${(()=>{ const m=missingFor(r); return m.length?`<div class="missbanner" role="status"><b>Il te manque ${m.length>1?m.length+' ingrédients':'un ingrédient'} pour cette recette</b><span>${esc(m.map(x=>x.n).join(', '))} : marqué${m.length>1?'s':''} épuisé${m.length>1?'s':''}.</span><a href="#ingredients" class="linkbtn">Voir les ingrédients</a></div>`:''; })()}
