@@ -1,7 +1,7 @@
 /* Fiches du labo : appli web installable, recettes stockées dans Supabase. */
 'use strict';
 const CFG = window.FDL_CONFIG || {};
-const BASE_CATS = ['Entremets','Verrines','Bases','Glaçages'];
+const BASE_CATS = ['Entremets','Verrines','Tartes & desserts','Mousses & crémeux','Inserts & coulis','Glaçages','Crèmes & garnitures','Bases','Cakes & petits gâteaux','Biscuits & sablés','Mignardises & confiserie','Glaces & sorbets','Viennoiseries & boulangerie','Traiteur'];
 let RECIPES = [], byId = {};
 let SB = null, USER = null, editable = false, loadState = 'loading';
 let editing = null;
@@ -34,7 +34,7 @@ const compBase = c=>(c.ing||[]).reduce((s,i)=>s+(i.u==='g'&&i.q?i.q:0),0);
 const totalBase = r=>r.comps.reduce((s,c)=>s+compBase(c),0);
 const compById = (r,id)=>r.comps.find(c=>c.id===id);
 const yieldLabel = r=>{ const y=r.yield; if(!y) return 'Fiche de base'; if(y.type==='units') return y.label; return y.formats.map(f=>f.label).join(' · '); };
-function catsOrder(){ const extra=[...new Set(RECIPES.map(r=>r.cat))].filter(c=>!BASE_CATS.includes(c)).sort((a,b)=>a.localeCompare(b,'fr')); return [...BASE_CATS,...extra]; }
+function catsOrder(){ const present=new Set(RECIPES.map(r=>r.cat)); const extra=[...present].filter(c=>!BASE_CATS.includes(c)).sort((a,b)=>a.localeCompare(b,'fr')); return [...BASE_CATS.filter(c=>present.has(c)),...extra]; }
 
 /* ---------- Données ---------- */
 function sanitize(id,d){
@@ -74,6 +74,7 @@ async function loadRecipes(){
   else renderAll();
   resolveUrls();
   applyFixes();
+  loadStock();
 }
 /* Corrections ponctuelles des fiches, appliquées une seule fois pour tout le compte. */
 const FIXES = [
@@ -103,7 +104,7 @@ async function saveRecipe(id, doc){
   const {error} = await SB.from('recettes').upsert({id, data:doc, updated_at:new Date().toISOString()});
   if(error) throw error;
   const r = sanitize(id,doc); const i = RECIPES.findIndex(x=>x.id===id);
-  if(i>=0) RECIPES[i]=r; else RECIPES.push(r); byId[id]=r;
+  if(i>=0) RECIPES[i]=r; else RECIPES.push(r); byId[id]=r; USAGE=null;
   store.set('fiches.cache',{user:USER.id, at:Date.now(), rows:RECIPES.map(x=>({id:x.id,data:toStored(x)}))});
   return r;
 }
@@ -172,17 +173,25 @@ function renderList(){
     return;
   }
   $('#count').textContent = `${RECIPES.length} fiches`+(!online()?' · hors connexion':'');
+  const cats = catsOrder();
+  if(CAT!=='Tout' && CAT!=='Manque' && !cats.includes(CAT)) CAT='Tout';
+  const nMiss = RECIPES.filter(r=>missingFor(r).length).length;
+  $('#cats').innerHTML = [['Tout',RECIPES.length],...cats.map(c=>[c,RECIPES.filter(r=>r.cat===c).length]),...(nMiss?[['Manque',nMiss]]:[])]
+    .map(([c,n])=>`<button type="button" class="catchip${c==='Manque'?' warn':''}" data-cat="${esc(c)}" aria-pressed="${CAT===c}">${c==='Manque'?'Il manque un ingrédient':esc(c)} <span>${n}</span></button>`).join('');
+  const match = r=> !q || norm(fullName(r)).includes(q) || r.comps.some(c=>norm(c.name).includes(q)||c.ing.some(i=>norm(i.n).includes(q)));
+  const keep = r=> q ? true : CAT==='Tout' ? true : CAT==='Manque' ? missingFor(r).length>0 : r.cat===CAT;
   let html='';
-  for(const cat of catsOrder()){
-    const items = RECIPES.filter(r=>r.cat===cat && (!q || norm(fullName(r)).includes(q) || r.comps.some(c=>norm(c.name).includes(q)||c.ing.some(i=>norm(i.n).includes(q)))))
-      .sort((a,b)=>fullName(a).localeCompare(fullName(b),'fr'));
+  for(const cat of cats){
+    const items = RECIPES.filter(r=>r.cat===cat && keep(r) && match(r)).sort((a,b)=>fullName(a).localeCompare(fullName(b),'fr'));
     if(!items.length) continue;
     html += `<div class="cat"><h2><span>${esc(cat)}</span><span>${items.length}</span></h2>`+items.map(r=>{
       const th = r.photos[0] ? photoTag(r.photos[0],'','class="thumb" loading="lazy"') : `<span class="thumb">${esc(r.name[0]||'?')}</span>`;
-      return `<a class="item" href="#${esc(r.id)}" aria-current="${r.id===cur}">${th}<span><b>${esc(fullName(r))}</b><small>${esc(yieldLabel(r))}</small></span></a>`;
+      const miss = missingFor(r);
+      const sub = miss.length ? `<small class="miss">Manque : ${esc(miss.map(x=>x.n).join(', '))}</small>` : `<small>${esc(yieldLabel(r))}</small>`;
+      return `<a class="item${miss.length?' has-miss':''}" href="#${esc(r.id)}" aria-current="${r.id===cur}">${th}<span><b>${esc(fullName(r))}</b>${sub}</span>${miss.length?`<span class="missdot" aria-label="Il manque ${miss.length} ingrédient${miss.length>1?'s':''}">${miss.length}</span>`:''}</a>`;
     }).join('')+`</div>`;
   }
-  $('#list').innerHTML = html || `<p class="empty">Aucune recette ne contient « ${esc($('#q').value)} ».</p>`;
+  $('#list').innerHTML = html || `<p class="empty">${q?`Aucune recette ne contient « ${esc($('#q').value)} ».`:'Aucune recette dans cette catégorie.'}</p>`;
 }
 
 /* ---------- Calcul ---------- */
@@ -268,7 +277,7 @@ function renderSheet(r){
       <ul class="ing">${comp.ing.map((i,ii)=>{const k=r.id+'|'+comp.id+'|'+ii;return `
         <li><button type="button" class="row" data-k="${esc(k)}" aria-pressed="${checked.has(k)}">
           <span class="tick" aria-hidden="true"></span>
-          <span class="n">${esc(i.n)}${i.inter?' <span class="inter">(préparée ci-dessus)</span>':''}${i.note?` <span class="inter">(${esc(i.note)})</span>`:''}</span><span class="lead"></span>
+          <span class="n">${esc(i.n)}${i.inter?' <span class="inter">(préparée ci-dessus)</span>':''}${i.note?` <span class="inter">(${esc(i.note)})</span>`:''}${!i.inter&&isOut(itemFor(i.n))?' <span class="outtag">épuisé</span>':''}</span><span class="lead"></span>
           <span class="q"><span data-q="${ci}:${ii}"></span><small>${i.q==null?'':esc(i.u)}</small></span>
         </button></li>`}).join('')}</ul>
     </section>`).join('');
@@ -279,6 +288,7 @@ function renderSheet(r){
       <div><p class="eyebrow">${esc(r.cat)}</p><h1>${esc(fullName(r))}</h1><p class="yield">${r.yield?'Fiche pour '+esc(r.yield.type==='units'?r.yield.label:'une fournée · '+yieldLabel(r)):'Fiche de base'} · ${fmt(totalBase(r))} g au total</p></div>
       <div class="head-side">${editable?`<button type="button" class="btn" id="btn-edit">Modifier la fiche</button>`:''}${refs?`<div class="refs"><span class="l">Voir aussi</span>${refs}</div>`:''}</div>
     </div>
+    ${(()=>{ const m=missingFor(r); return m.length?`<div class="missbanner" role="status"><b>Il te manque ${m.length>1?m.length+' ingrédients':'un ingrédient'} pour cette recette</b><span>${esc(m.map(x=>x.n).join(', '))} : marqué${m.length>1?'s':''} épuisé${m.length>1?'s':''}.</span><a href="#ingredients" class="linkbtn">Voir les ingrédients</a></div>`:''; })()}
     ${photos?`<div class="photos">${photos}</div>`:''}
     <section class="prod" aria-label="Calcul de production">
       <h2>Production <small>Toutes les quantités se recalculent en direct</small></h2>
@@ -832,15 +842,143 @@ async function historyClick(t){
     setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },4000); return; }
 }
 
+/* ---------- Ingrédients : stock et commande ---------- */
+let CAT = store.get('fiches.cat','Tout');
+const STOCK_CATS = window.FDL_STOCK_CATS || [];
+let STOCK = store.get('fiches.stock', {s:{}, custom:[]});
+let stockDirty = store.get('fiches.stockDirty', false);
+const SV = {filter:'tout', q:'', open:null, adding:false};
+const normKey = s=>String(s||'').toLowerCase().replace(/œ/g,'oe').replace(/’/g,"'").normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+function allItems(){ return [...(window.FDL_INGREDIENTS||[]), ...(STOCK.custom||[]).map(x=>({...x, custom:true, k:[normKey(x.n)]}))]; }
+let KEYS=null, itemCache=new Map(), USAGE=null, usageFor=null;
+function buildKeys(){
+  KEYS=[]; itemCache=new Map(); USAGE=null;
+  for(const it of allItems()) for(const k of (it.k||[])) if(k) KEYS.push([k,it]);
+  for(const k of (window.FDL_IGNORE||[])) KEYS.push([k,null]);
+  KEYS.sort((a,b)=>b[0].length-a[0].length);
+}
+function itemFor(name){
+  if(!KEYS) buildKeys();
+  if(itemCache.has(name)) return itemCache.get(name);
+  const n=' '+normKey(name)+' '; let found=null;
+  for(const [k,it] of KEYS){ if(n.includes(' '+k+' ')){ found=it; break; } }
+  itemCache.set(name, found); return found;
+}
+const stOf = it=> it && STOCK.s[it.id] || {};
+const isOut = it=> !!(it && stOf(it).out);
+function missingFor(r){
+  const out=new Map();
+  for(const c of r.comps) for(const i of c.ing){ if(i.inter) continue; const it=itemFor(i.n); if(it && isOut(it)) out.set(it.id,it); }
+  return [...out.values()];
+}
+function usage(){
+  if(USAGE && usageFor===RECIPES) return USAGE;
+  USAGE={}; usageFor=RECIPES;
+  for(const r of RECIPES){ const seen=new Set(); for(const c of r.comps) for(const i of c.ing){ if(i.inter) continue; const it=itemFor(i.n); if(it && !seen.has(it.id)){ seen.add(it.id); (USAGE[it.id]=USAGE[it.id]||[]).push(r); } } }
+  return USAGE;
+}
+function stockCounts(){ let out=0, order=0; for(const id in STOCK.s){ if(STOCK.s[id].out) out++; if(STOCK.s[id].order) order++; } return {out, order}; }
+function updateBadge(){ const {out,order}=stockCounts(); const b=$('#stock-badge'); if(!b) return; const n=out||order; b.hidden=!n; b.textContent=n; b.className='badge'+(out?' out':''); b.title=`${out} épuisé${out>1?'s':''}, ${order} à commander`; }
+async function loadStock(){
+  if(!SB||!USER||!online()) return;
+  if(stockDirty){ await saveStock(); return; }
+  const {data,error}=await SB.from('recettes').select('id,data').eq('id','meta:stock');
+  if(error) return;
+  const d=data&&data[0]&&data[0].data; if(d){ STOCK={s:d.s||{}, custom:d.custom||[]}; store.set('fiches.stock',STOCK); buildKeys(); }
+  updateBadge(); if(view==='stock') renderStock(); else renderAll();
+}
+let stockTimer=null;
+function touchStock(){
+  store.set('fiches.stock',STOCK); stockDirty=true; store.set('fiches.stockDirty',true);
+  updateBadge(); clearTimeout(stockTimer); stockTimer=setTimeout(saveStock, 700);
+}
+async function saveStock(){
+  if(!SB||!USER||!online()) return;
+  const {error}=await SB.from('recettes').upsert({id:'meta:stock', data:STOCK, updated_at:new Date().toISOString()});
+  if(!error){ stockDirty=false; store.set('fiches.stockDirty',false); }
+}
+function setStock(id, patch){
+  const cur={...(STOCK.s[id]||{}), ...patch, t:Date.now()};
+  if(!cur.out && !cur.order) delete STOCK.s[id]; else STOCK.s[id]=cur;
+  touchStock();
+}
+function renderStock(){
+  const items=allItems(), U=usage(), {out,order}=stockCounts();
+  const q=normKey(SV.q);
+  const pass = it=> (SV.filter==='tout' || (SV.filter==='out'&&stOf(it).out) || (SV.filter==='order'&&stOf(it).order)) && (!q || normKey(it.n).includes(q));
+  const row = it=>{
+    const st=stOf(it), used=U[it.id]||[];
+    return `<li class="srow${st.out?' is-out':''}${st.order?' is-order':''}">
+      <div class="sname"><b>${esc(it.n)}</b>
+        ${used.length?`<button type="button" class="linkbtn suse" data-s="use" data-id="${esc(it.id)}" aria-expanded="${SV.open===it.id}">${used.length} recette${used.length>1?'s':''}</button>`:`<span class="suse none">${it.custom?'ajouté à la main':'aucune recette'}</span>`}
+        ${it.custom?`<button type="button" class="linkbtn" data-s="del" data-id="${esc(it.id)}">Retirer</button>`:''}</div>
+      <div class="sact">
+        <button type="button" class="stog out" data-s="out" data-id="${esc(it.id)}" aria-pressed="${!!st.out}">${st.out?'Épuisé':'En stock'}</button>
+        <button type="button" class="stog order" data-s="order" data-id="${esc(it.id)}" aria-pressed="${!!st.order}">${st.order?'À commander ✓':'À commander'}</button>
+        ${(st.out||st.order)?`<button type="button" class="btn sm" data-s="recu" data-id="${esc(it.id)}">Reçu</button>`:''}
+      </div>
+      ${SV.open===it.id&&used.length?`<div class="suselist">${used.map(r=>`<a class="chip" href="#${esc(r.id)}">${esc(fullName(r))}</a>`).join('')}</div>`:''}
+    </li>`;
+  };
+  let groups='';
+  STOCK_CATS.forEach((cat,ci)=>{
+    const list=items.filter(it=>it.c===ci && pass(it)).sort((a,b)=>a.n.localeCompare(b.n,'fr'));
+    if(list.length) groups+=`<section class="scat"><h3>${esc(cat)} <span>${list.length}</span></h3><ul class="slist">${list.map(row).join('')}</ul></section>`;
+  });
+  const toOrder=items.filter(it=>stOf(it).order).sort((a,b)=>a.n.localeCompare(b.n,'fr'));
+  $('#main').innerHTML=`<article class="sheet stock">
+    <button type="button" class="back" id="back">← Toutes les recettes</button>
+    <div class="head"><div><p class="eyebrow">Stock</p><h1>Ingrédients</h1><p class="yield">${items.length} produits · ${out} épuisé${out>1?'s':''} · ${order} à commander</p></div></div>
+    <p class="help">Touchez <b>En stock</b> quand un produit est fini : il passe en <b>Épuisé</b> et s’ajoute à la liste à commander. Les recettes qui l’utilisent sont alors signalées. Touchez <b>Reçu</b> à la livraison.</p>
+    <div class="sfilter">
+      <div class="modes light" role="group" aria-label="Filtre">${[['tout','Tous'],['out',`Épuisés (${out})`],['order',`À commander (${order})`]].map(([k,l])=>`<button type="button" data-s="filter" data-v="${k}" aria-pressed="${SV.filter===k}">${l}</button>`).join('')}</div>
+      <input class="inp" id="s-q" type="search" placeholder="Chercher un produit" value="${esc(SV.q)}" aria-label="Chercher un produit">
+    </div>
+    ${SV.filter==='order'&&toOrder.length?`<section class="orderbox"><div class="totals-head"><h2>Liste de commande</h2><span style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn" data-s="copy">Copier la liste</button><button type="button" class="btn" data-s="allrecu">Tout reçu</button></span></div>
+      <p>${toOrder.map(it=>esc(it.n)).join(' · ')}</p></section>`:''}
+    ${groups||`<p class="empty">${SV.filter==='out'?'Aucun produit épuisé.':SV.filter==='order'?'Rien à commander pour l’instant.':'Aucun produit ne correspond.'}</p>`}
+    <section class="sadd">${SV.adding?`<div class="grid">
+        <label class="lab">Nouveau produit<input class="inp" id="s-new" placeholder="ex. Purée de cassis"></label>
+        <label class="lab">Rubrique<select class="inp" id="s-newcat">${STOCK_CATS.map((c,i)=>`<option value="${i}">${esc(c)}</option>`).join('')}</select></label></div>
+        <div style="display:flex;gap:8px;margin-top:10px"><button type="button" class="btn primary" data-s="addok">Ajouter</button><button type="button" class="btn" data-s="addno">Annuler</button></div>`
+      :`<button type="button" class="btn" data-s="add">+ Ajouter un produit</button>`}</section>
+  </article>`;
+}
+function stockClick(t){
+  const s=t.dataset.s, id=t.dataset.id; if(!s) return;
+  const it=id && allItems().find(x=>x.id===id);
+  switch(s){
+    case 'filter': SV.filter=t.dataset.v; break;
+    case 'use': SV.open = SV.open===id ? null : id; break;
+    case 'out': { const st=stOf(it); setStock(id, st.out?{out:false}:{out:true, order:true}); toast(st.out?`${it.n} : de nouveau en stock.`:`${it.n} : épuisé, ajouté à la liste à commander.`); break; }
+    case 'order': setStock(id,{order:!stOf(it).order}); break;
+    case 'recu': setStock(id,{out:false, order:false}); toast(`${it.n} : reçu.`); break;
+    case 'allrecu': for(const k of Object.keys(STOCK.s)) if(STOCK.s[k].order) setStock(k,{out:false,order:false}); toast('Commande reçue : tout est de nouveau en stock.'); break;
+    case 'copy': { const txt=allItems().filter(x=>stOf(x).order).sort((a,b)=>a.n.localeCompare(b.n,'fr')).map(x=>'- '+x.n).join('\n');
+      (navigator.clipboard?navigator.clipboard.writeText('À commander :\n'+txt):Promise.reject()).then(()=>toast('Liste copiée : collez-la dans un message.')).catch(()=>toast('La copie n’a pas fonctionné sur cet appareil.')); return; }
+    case 'add': SV.adding=true; renderStock(); $('#s-new').focus(); return;
+    case 'addno': SV.adding=false; break;
+    case 'addok': { const n=$('#s-new').value.trim(); if(!n){ $('#s-new').focus(); return; }
+      if(allItems().some(x=>normKey(x.n)===normKey(n))){ toast('Ce produit est déjà dans la liste.'); return; }
+      STOCK.custom=[...(STOCK.custom||[]), {id:'u-'+uid(), n, c:+$('#s-newcat').value}]; SV.adding=false; buildKeys(); touchStock(); toast(`${n} ajouté.`); break; }
+    case 'del': STOCK.custom=(STOCK.custom||[]).filter(x=>x.id!==id); delete STOCK.s[id]; buildKeys(); touchStock(); break;
+  }
+  const y=window.scrollY; renderStock(); window.scrollTo(0,y); renderList();
+}
+
 /* ---------- Navigation ---------- */
+function setTab(k){ document.querySelectorAll('#tabs [data-tab]').forEach(a=>a.setAttribute('aria-current', String(a.dataset.tab===k))); document.body.dataset.tab=k; }
 function route(){
   if(editing){ renderEditor(); return; }
+  if(location.hash==='#ingredients' && editable){
+    view='stock'; shown=null; setTab('ingredients'); renderList(); $('#app').classList.add('is-sheet');
+    renderStock(); window.scrollTo(0,0); return;
+  }
   if(location.hash==='#historique' && editable){
-    view='history'; shown=null; renderList(); $('#app').classList.add('is-sheet');
-    document.querySelectorAll('#nav-hist').forEach(a=>a.setAttribute('aria-current','true'));
+    view='history'; shown=null; setTab('historique'); renderList(); $('#app').classList.add('is-sheet');
     renderHistory(); window.scrollTo(0,0); if(!HIST.loaded) loadHistory(); return;
   }
-  view='sheet'; document.querySelectorAll('#nav-hist').forEach(a=>a.setAttribute('aria-current','false'));
+  view='sheet'; setTab('recettes');
   let r=byId[location.hash.slice(1)]||null;
   const desktop = matchMedia('(min-width: 900px)').matches;
   $('#app').classList.toggle('is-sheet', !!r);
@@ -857,8 +995,11 @@ addEventListener('hashchange',()=>{
   lastHash=location.hash; route();
 });
 $('#q').addEventListener('input',renderList);
+$('#cats').addEventListener('click',e=>{ const b=e.target.closest('[data-cat]'); if(!b) return; CAT=b.dataset.cat; store.set('fiches.cat',CAT); renderList(); });
+$('#main').addEventListener('input',e=>{ if(view==='stock' && e.target.id==='s-q'){ SV.q=e.target.value; const pos=e.target.selectionStart; renderStock(); const i=$('#s-q'); i.focus(); try{ i.setSelectionRange(pos,pos); }catch(_){} } });
+$('#main').addEventListener('keydown',e=>{ if(view==='stock' && e.target.id==='s-new' && e.key==='Enter'){ e.preventDefault(); const b=document.querySelector('[data-s="addok"]'); if(b) b.click(); } });
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && USER && online() && !editing && Date.now()-lastLoad>30000) loadRecipes(); });
-addEventListener('online',()=>{ if(USER){ toast('Connexion rétablie.'); loadRecipes(); flushPending(); } });
+addEventListener('online',()=>{ if(USER){ toast('Connexion rétablie.'); if(stockDirty) saveStock(); loadRecipes(); flushPending(); } });
 addEventListener('offline',()=>{ if(USER){ toast('Hors connexion : consultation uniquement.'); renderList(); } });
 
 $('#main').addEventListener('click',e=>{
@@ -885,6 +1026,7 @@ $('#main').addEventListener('click',e=>{
     renderEditor(); return;
   }
   if(view==='history'){ if(t.id==='back'){ location.hash=''; return; } historyClick(t); return; }
+  if(view==='stock'){ if(t.id==='back'){ location.hash=''; return; } stockClick(t); return; }
   const r=shown; if(!r) return; const c=getCalc(r);
   if(t.id==='back'){ location.hash=''; return; }
   if(t.id==='btn-edit'){ startEdit(r); return; }

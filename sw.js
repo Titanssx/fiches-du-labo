@@ -1,8 +1,8 @@
 /* Fiches du labo : fonctionnement hors connexion. Changer VERSION à chaque mise à jour du code. */
-const VERSION = 'fdl-v12';
+const VERSION = 'fdl-v13';
 const PHOTOS = 'fdl-photos';
 const FONTS = 'fdl-fonts';
-const SHELL = ['./', './index.html', './style.css', './app.js', './config.js', './manifest.webmanifest',
+const SHELL = ['./', './index.html', './style.css', './app.js', './ingredients.js', './config.js', './manifest.webmanifest',
   './vendor/supabase.js', './vendor/jszip.min.js', './icons/logo.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

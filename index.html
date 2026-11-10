@@ -41,11 +41,16 @@
 <div class="app" id="app" hidden>
   <aside class="index" id="index">
     <div class="brand"><img class="brand-logo" src="icons/logo.svg" alt="" width="40" height="40"><div><h1>Coup De Fouet</h1><p id="count">Chargement des recettes…</p></div></div>
+    <nav class="tabs" id="tabs" aria-label="Sections">
+      <a href="#" data-tab="recettes" aria-current="true">Recettes</a>
+      <a href="#ingredients" data-tab="ingredients" aria-current="false">Ingrédients <span class="badge" id="stock-badge" hidden></span></a>
+      <a href="#historique" data-tab="historique" aria-current="false">Historique</a>
+    </nav>
     <div class="addbar" id="addbar" hidden>
       <button type="button" class="btn primary" id="btn-new">+ Nouvelle recette</button>
-      <a class="btn navbtn" href="#historique" id="nav-hist" aria-current="false">Historique de production</a>
     </div>
     <div class="search"><input id="q" type="search" placeholder="Rechercher une recette ou un ingrédient" aria-label="Rechercher"></div>
+    <div class="cats" id="cats" role="group" aria-label="Catégories"></div>
     <nav id="list"><p class="empty">Chargement des recettes…</p></nav>
     <div class="foot acct" id="acct" hidden>
       <p style="margin:0">Touchez un ingrédient pour le cocher une fois pesé.</p>
@@ -68,6 +73,7 @@
 <script src="config.js"></script>
 <script src="vendor/supabase.js"></script>
 <script src="vendor/jszip.min.js"></script>
+<script src="ingredients.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
