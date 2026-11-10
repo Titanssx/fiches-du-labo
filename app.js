@@ -136,7 +136,75 @@ async function boot(){
   SB = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {auth:{persistSession:true, autoRefreshToken:true}});
   const {data:{session}} = await SB.auth.getSession();
   SB.auth.onAuthStateChange((ev,s)=>{ if(ev==='SIGNED_OUT'){ USER=null; signedOut(); } });
-  if(session && session.user) signedIn(session.user); else signedOut();
+  const invite = INVITE;
+  if(session && session.user){
+    if(invite){ clearInviteUrl(); if(String(session.user.email||'').toLowerCase()!==invite.email){ await SB.auth.signOut(); signedOut(); showJoin(invite.email); return; } }
+    signedIn(session.user); if(invite) showInstall(true);
+  } else { signedOut(); if(invite) showJoin(invite.email); }
+}
+
+/* ---------- Invitation : lien envoyé par le responsable ---------- */
+const INVITE = (()=>{ try{ const p=new URLSearchParams(location.search); return p.has('invite') ? {email:String(p.get('email')||'').trim().toLowerCase()} : null; }catch(_){ return null; } })();
+const APP_URL = location.origin + location.pathname;
+function clearInviteUrl(){ try{ history.replaceState(null,'',APP_URL+location.hash); }catch(_){} }
+function inviteLink(email){ return `${APP_URL}?invite=1&email=${encodeURIComponent(email)}`; }
+function showJoin(email){
+  $('#login-form').hidden=true; $('#join-form').hidden=false; $('#setup-msg').hidden=true;
+  document.querySelector('.login-sub').textContent='Rejoindre l’équipe';
+  $('#join-email').value=email||''; setTimeout(()=>(email?$('#join-pass'):$('#join-email')).focus(),50);
+}
+function showLogin(){ $('#join-form').hidden=true; $('#login-form').hidden=false; document.querySelector('.login-sub').textContent='Votre carnet de recettes de pâtisserie.'; }
+$('#join-to-login').addEventListener('click',()=>{ clearInviteUrl(); showLogin(); $('#login-email').value=$('#join-email').value; });
+$('#join-form').addEventListener('submit',async e=>{
+  e.preventDefault(); const err=$('#join-err'); err.textContent='';
+  const email=$('#join-email').value.trim().toLowerCase(), p1=$('#join-pass').value, p2=$('#join-pass2').value;
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ err.textContent='Saisissez votre email.'; return; }
+  if(p1.length<6){ err.textContent='Le mot de passe doit faire au moins 6 caractères.'; return; }
+  if(p1!==p2){ err.textContent='Les deux mots de passe ne sont pas identiques.'; return; }
+  if(!online()){ err.textContent='Connectez-vous à internet pour créer votre compte.'; return; }
+  const btn=$('#join-btn'); btn.disabled=true; btn.textContent='Création du compte…';
+  const {data,error}=await SB.auth.signUp({email, password:p1, options:{emailRedirectTo:APP_URL}});
+  btn.disabled=false; btn.textContent='Créer mon compte';
+  if(error){
+    const m=error.message||'';
+    err.textContent = /already|registered|exists/i.test(m) ? 'Un compte existe déjà avec cet email : connectez-vous.'
+      : /database error|invit/i.test(m) ? 'Cette adresse n’a pas été invitée. Demandez à votre responsable de vous ajouter dans Réglages → Équipe, avec exactement cet email.'
+      : /signups? not allowed|disabled/i.test(m) ? 'Les inscriptions sont fermées. Demandez à votre responsable de les ouvrir dans Supabase.'
+      : 'La création du compte a échoué : '+m;
+    return;
+  }
+  if(!data.session){ err.textContent='Compte créé, mais il doit être confirmé par email. Demandez à votre responsable de désactiver « Confirm email » dans Supabase, puis connectez-vous.'; return; }
+  clearInviteUrl(); $('#join-pass').value=''; $('#join-pass2').value='';
+  showLogin(); signedIn(data.user); showInstall(true);
+});
+
+/* ---------- Guide d'installation sur le téléphone ---------- */
+let deferredInstall=null;
+addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredInstall=e; });
+const isStandalone = ()=> matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+function showInstall(welcome){
+  if(isStandalone()){ if(welcome) toast('Bienvenue dans l’équipe !'); return; }
+  const ua=navigator.userAgent, ios=/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints>1);
+  const android=/Android/.test(ua), notSafari = ios && /CriOS|FxiOS|EdgiOS|FBAN|FBAV|Instagram|Line\//.test(ua);
+  let steps;
+  if(ios && notSafari) steps=`<p>Pour installer l’appli, il faut l’ouvrir dans <b>Safari</b>.</p><ol><li>Touchez <b>Copier le lien de l’appli</b> ci-dessous.</li><li>Ouvrez <b>Safari</b> et collez le lien dans la barre d’adresse.</li><li>Touchez <b>Partager</b> (le carré avec une flèche), puis <b>Sur l’écran d’accueil</b>.</li></ol>`;
+  else if(ios) steps=`<ol><li>Touchez <b>Partager</b> (le carré avec une flèche, en bas ou en haut de Safari).</li><li>Choisissez <b>Sur l’écran d’accueil</b>, puis <b>Ajouter</b>.</li><li>Ouvrez l’appli depuis la nouvelle icône et connectez-vous une fois.</li></ol><p class="help">Si ce menu n’apparaît pas, vous n’êtes pas dans Safari : copiez le lien et ouvrez-le dans Safari.</p>`;
+  else if(android) steps= deferredInstall ? `<p>Touchez <b>Installer</b> pour ajouter Coup De Fouet à votre écran d’accueil.</p><p><button type="button" class="btn primary" id="install-go">Installer</button></p>`
+      : `<ol><li>Dans Chrome, touchez le menu <b>⋮</b> en haut à droite.</li><li>Choisissez <b>Installer l’application</b> ou <b>Ajouter à l’écran d’accueil</b>.</li><li>Ouvrez l’appli depuis la nouvelle icône.</li></ol>`;
+  else steps=`<p>Sur votre téléphone, ouvrez ce lien puis ajoutez l’appli à l’écran d’accueil :</p><p class="install-url">${esc(APP_URL)}</p>`;
+  $('#install-body').innerHTML=(welcome?`<p class="install-hello">Bienvenue dans l’équipe ! Votre compte est prêt.</p>`:'')+steps;
+  $('#install').hidden=false;
+}
+$('#install-close').addEventListener('click',()=>{ $('#install').hidden=true; });
+$('#install-copy').addEventListener('click',()=>{ (navigator.clipboard?navigator.clipboard.writeText(APP_URL):Promise.reject()).then(()=>toast('Lien copié.')).catch(()=>toast(APP_URL, 8000)); });
+$('#install-body').addEventListener('click',async e=>{ if(e.target.id!=='install-go'||!deferredInstall) return; deferredInstall.prompt(); try{ await deferredInstall.userChoice; }catch(_){} deferredInstall=null; $('#install').hidden=true; });
+
+async function sendInvite(email){
+  const url=inviteLink(email);
+  const text=`Je t’invite à rejoindre l’équipe sur Coup De Fouet, notre carnet de recettes. Ouvre ce lien et choisis ton mot de passe (avec l’email ${email}) :`;
+  if(navigator.share){ try{ await navigator.share({title:'Invitation Coup De Fouet', text, url}); return; }catch(e){ if(e&&e.name==='AbortError') return; } }
+  try{ await navigator.clipboard.writeText(text+' '+url); toast('Invitation copiée : collez-la dans un SMS, WhatsApp ou un email.', 6000); }
+  catch(_){ SET.showLink=email; renderSettings(); }
 }
 function showApp(on){ $('#app').hidden=!on; $('#login').hidden=on; }
 function applyRole(){
@@ -1092,7 +1160,7 @@ function stockClick(t){
 
 /* ---------- Navigation ---------- */
 function setTab(k){ document.querySelectorAll('#tabs [data-tab], #bottombar [data-tab]').forEach(a=>a.setAttribute('aria-current', String(a.dataset.tab===k))); document.body.dataset.tab=k; }
-const SET = {adding:false, err:'', confirm:null};
+const SET = {adding:false, err:'', confirm:null, showLink:null};
 function renderSettings(){
   const n=RECIPES.length;
   if(!editable){
@@ -1101,6 +1169,7 @@ function renderSettings(){
       <section class="setgroup"><h2>Compte équipe</h2>
         <div class="setinfo">Vous consultez les recettes de l’équipe. Vous pouvez calculer les productions, cocher les ingrédients épuisés ou à commander, et enregistrer l’historique. Seul le responsable modifie les recettes.</div>
       </section>
+      <section class="setgroup"><h2>Téléphone</h2><button type="button" class="setrow" data-set="install"><b>Installer l’appli sur ce téléphone</b><span>Ajouter l’icône Coup De Fouet à l’écran d’accueil</span></button></section>
       <section class="setgroup"><h2>Compte</h2>
         <button type="button" class="setrow danger" data-set="logout"><b>Se déconnecter</b><span>Il faudra saisir à nouveau l’email et le mot de passe</span></button>
       </section>
@@ -1109,9 +1178,10 @@ function renderSettings(){
   }
   const team = TEAM ? `<section class="setgroup"><h2>Équipe</h2>
       <div class="setinfo">Les collègues de l’équipe voient vos recettes, cochent le stock et enregistrent des productions. Ils ne peuvent pas modifier les recettes.</div>
-      ${MEMBERS.map(m=>`<div class="setmember"><span>${esc(m.email)}</span>${SET.confirm===m.email?`<span class="confirm">Retirer ? <button type="button" class="btn danger sm" data-set="rm-yes" data-email="${esc(m.email)}">Oui</button><button type="button" class="btn sm" data-set="rm-no">Non</button></span>`:`<button type="button" class="linkbtn" data-set="rm" data-email="${esc(m.email)}">Retirer</button>`}</div>`).join('') || `<div class="setinfo muted">Aucun collègue pour l’instant.</div>`}
+      ${MEMBERS.map(m=>`<div class="setmember"><span>${esc(m.email)}</span>${SET.confirm===m.email?`<span class="confirm">Retirer ? <button type="button" class="btn danger sm" data-set="rm-yes" data-email="${esc(m.email)}">Oui</button><button type="button" class="btn sm" data-set="rm-no">Non</button></span>`:`<span class="memact"><button type="button" class="btn sm" data-set="invite" data-email="${esc(m.email)}">Envoyer l’invitation</button><button type="button" class="linkbtn" data-set="rm" data-email="${esc(m.email)}">Retirer</button></span>`}
+        ${SET.showLink===m.email?`<p class="install-url">${esc(inviteLink(m.email))}</p>`:''}</div>`).join('') || `<div class="setinfo muted">Aucun collègue pour l’instant.</div>`}
       ${SET.adding?`<div class="setadd"><label class="lab" for="m-email">Email du collègue<input class="inp" id="m-email" type="email" placeholder="prenom@exemple.com" autocomplete="off"></label>
-        <p class="help">Créez aussi son compte dans Supabase (Authentication → Users → Add user, avec « Auto Confirm User »), avec ce même email et le mot de passe que vous lui donnerez.</p>
+        <p class="help">Vous pourrez ensuite lui envoyer l’invitation par SMS, WhatsApp ou email. Il choisira lui-même son mot de passe.</p>
         ${SET.err?`<p class="err">${esc(SET.err)}</p>`:''}
         <div style="display:flex;gap:8px"><button type="button" class="btn primary" data-set="add-ok">Ajouter à l’équipe</button><button type="button" class="btn" data-set="add-no">Annuler</button></div></div>`
       :`<button type="button" class="setrow" data-set="add"><b>+ Ajouter un collègue</b><span>Il aura son propre email et mot de passe</span></button>`}
@@ -1128,7 +1198,8 @@ function renderSettings(){
       <button type="button" class="setrow" data-set="backup"><b>Sauvegarder mes recettes</b><span>Télécharge un fichier avec les ${n} fiches et leurs photos</span></button>
       <button type="button" class="setrow" data-set="restore"><b>Restaurer une sauvegarde</b><span>Ajoute ou remplace les fiches à partir d’un fichier de sauvegarde</span></button>
     </section>
-    <section class="setgroup"><h2>Compte</h2>
+    <section class="setgroup"><h2>Téléphone</h2><button type="button" class="setrow" data-set="install"><b>Installer l’appli sur ce téléphone</b><span>Ajouter l’icône Coup De Fouet à l’écran d’accueil</span></button></section>
+      <section class="setgroup"><h2>Compte</h2>
       <button type="button" class="setrow danger" data-set="logout"><b>Se déconnecter</b><span>Il faudra saisir à nouveau l’email et le mot de passe</span></button>
     </section>
   </article>`;
@@ -1211,8 +1282,10 @@ $('#main').addEventListener('click',e=>{
       if(!needOnline()) return;
       SB.from('membres').insert({email:em, owner:USER.id}).then(({error})=>{
         if(error){ SET.err = /duplicate|unique/i.test(error.message) ? 'Ce collègue fait déjà partie d’une équipe.' : 'L’ajout a échoué : '+error.message; renderSettings(); return; }
-        SET.adding=false; toast(`${em} ajouté à l’équipe.`); loadMembers(); });
+        SET.adding=false; toast(`${em} ajouté à l’équipe. Envoyez-lui l’invitation.`, 5000); loadMembers(); });
       return; }
+    if(a==='invite'){ sendInvite(t.dataset.email); return; }
+    if(a==='install'){ showInstall(false); return; }
     if(a==='rm'){ SET.confirm=t.dataset.email; renderSettings(); return; }
     if(a==='rm-no'){ SET.confirm=null; renderSettings(); return; }
     if(a==='rm-yes'){ if(!needOnline()) return; const em=t.dataset.email;

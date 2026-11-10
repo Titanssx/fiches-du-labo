@@ -34,6 +34,15 @@
       <button type="submit" class="btn primary" id="login-btn">Se connecter</button>
       <p class="err" id="login-err" role="alert"></p>
     </form>
+    <form id="join-form" novalidate hidden>
+      <p class="join-lead">Vous êtes invité à rejoindre l’équipe. Choisissez votre mot de passe pour créer votre compte.</p>
+      <label class="lab" for="join-email">Email<input class="inp" id="join-email" type="email" autocomplete="username" required></label>
+      <label class="lab" for="join-pass">Mot de passe <span>6 caractères minimum</span><input class="inp" id="join-pass" type="password" autocomplete="new-password" required minlength="6"></label>
+      <label class="lab" for="join-pass2">Confirmer le mot de passe<input class="inp" id="join-pass2" type="password" autocomplete="new-password" required></label>
+      <button type="submit" class="btn primary" id="join-btn">Créer mon compte</button>
+      <p class="err" id="join-err" role="alert"></p>
+      <button type="button" class="linkbtn" id="join-to-login">J’ai déjà un compte : me connecter</button>
+    </form>
     <p class="help" id="setup-msg" hidden>L’appli n’est pas encore reliée à Supabase. Renseignez l’adresse du projet et la clé publique dans le fichier <code>config.js</code>, puis rechargez la page.</p>
   </div>
 </div>
@@ -71,6 +80,17 @@
     <a href="#historique" data-tab="historique" aria-current="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span>Historique</span></a>
     <a href="#reglages" data-tab="reglages" aria-current="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/></svg><span>Réglages</span></a>
   </nav>
+</div>
+<div class="modal" id="install" hidden role="dialog" aria-modal="true" aria-labelledby="install-title">
+  <div class="modal-card">
+    <img class="login-logo" src="icons/logo.svg" alt="" width="56" height="56">
+    <h2 id="install-title">Installez l’appli sur votre téléphone</h2>
+    <div id="install-body"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="install-copy">Copier le lien de l’appli</button>
+      <button type="button" class="btn primary" id="install-close">C’est fait</button>
+    </div>
+  </div>
 </div>
 <div id="lb" hidden><img alt=""></div>
 <div id="toast" role="status" hidden></div>
