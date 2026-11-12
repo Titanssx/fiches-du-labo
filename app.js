@@ -1055,14 +1055,15 @@ async function loadStockTeam(){
   const s={}, custom=[];
   const stats={};
   for(const r of data){
-    if(r.item_id.startsWith('stat:')){ stats[r.item_id.slice(5)]={n:r.cat||0, pin:!!r.commander, hide:!!r.epuise}; continue; }
+    if(r.item_id.startsWith('stat:')){ let qq={}; try{ qq=r.name?JSON.parse(r.name):{}; }catch(_){ qq={}; } stats[r.item_id.slice(5)]={n:r.cat||0, pin:!!r.commander, hide:!!r.epuise, q:qq.q||'', lq:qq.lq||''}; continue; }
     if(r.name) custom.push({id:r.item_id, n:r.name, c:r.cat==null?0:r.cat});
     if(r.epuise||r.commander) s[r.item_id]={out:r.epuise, order:r.commander, by:r.updated_by||'', t:Date.parse(r.updated_at)||0};
   }
   for(const id in stockPending){ if(STOCK.s[id]) s[id]=STOCK.s[id]; else delete s[id]; }   // garder les changements pas encore envoyés
   for(const id in statPending){ if(STOCK.stats&&STOCK.stats[id]) stats[id]=STOCK.stats[id]; }
   STOCK={s, custom, stats}; store.set('fiches.stock',STOCK); buildKeys();
-  updateBadge(); if(view==='stock') renderStock(); else renderAll();
+  const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#main input, #main textarea');
+  updateBadge(); if(view==='stock'){ if(!typing) renderStock(); } else renderAll();
 }
 function stockRow(id){
   const st=STOCK.s[id]||{}, cu=(STOCK.custom||[]).find(x=>x.id===id);
@@ -1107,12 +1108,13 @@ async function pushStat(id){
   statPending[id]=1; store.set('fiches.statPending',statPending);
   if(!online()) return;
   const st=statOf(id);
-  const {error}=await SB.from('stock').upsert({owner:OWNER_ID, item_id:'stat:'+id, name:null, cat:st.n||0, epuise:!!st.hide, commander:!!st.pin, updated_at:new Date().toISOString(), updated_by:USER&&USER.email||null});
+  const {error}=await SB.from('stock').upsert({owner:OWNER_ID, item_id:'stat:'+id, name:(st.q||st.lq)?JSON.stringify({q:st.q||'', lq:st.lq||''}):null, cat:st.n||0, epuise:!!st.hide, commander:!!st.pin, updated_at:new Date().toISOString(), updated_by:USER&&USER.email||null});
   if(!error){ delete statPending[id]; store.set('fiches.statPending',statPending); }
 }
 const isFav = it=>{ const st=statOf(it.id); return !st.hide && (st.pin || st.n>=FAV_MIN); };
 function setStock(id, patch){
   if(patch.order && !(STOCK.s[id]||{}).order) setStat(id, {n:statOf(id).n+1});
+  if(patch.order===false && (STOCK.s[id]||{}).order){ const fs=statOf(id); if(fs.q) setStat(id, {lq:fs.q, q:''}); }
   const cur={...(STOCK.s[id]||{}), ...patch, t:Date.now(), by:USER&&USER.email||''};
   if(!cur.out && !cur.order) delete STOCK.s[id]; else STOCK.s[id]=cur;
   if(TEAM){ store.set('fiches.stock',STOCK); updateBadge(); pushItem(id); } else touchStock();
@@ -1136,6 +1138,7 @@ function renderStock(){
         ${fs.n?`<span class="scount">commandé ${fs.n} fois</span>`:''}
         ${used.length?`<button type="button" class="linkbtn suse" data-s="use" data-id="${esc(it.id)}" aria-expanded="${SV.open===it.id}">${used.length} recette${used.length>1?'s':''}</button>`:`<span class="suse none">${it.custom?'ajouté à la main':'aucune recette'}</span>`}
         <button type="button" class="linkbtn sdel" data-s="hide" data-id="${esc(it.id)}" title="Retirer de la liste (vous pourrez le remettre)">Retirer</button>${stockByLabel(st)}</div>
+      ${st.order?`<label class="sqty">Quantité à commander <input class="inp" data-sq="${esc(it.id)}" value="${esc(fs.q||'')}" placeholder="${fs.lq?'comme la dernière fois : '+esc(fs.lq):'ex. 5 kg, 2 cartons'}" autocomplete="off" enterkeyhint="done">${fs.lq&&!fs.q?`<button type="button" class="linkbtn" data-s="sameq" data-id="${esc(it.id)}">Reprendre ${esc(fs.lq)}</button>`:''}</label>`:''}
       <div class="sact">
         <button type="button" class="stog out" data-s="out" data-id="${esc(it.id)}" aria-pressed="${!!st.out}">${st.out?'Épuisé':'En stock'}</button>
         <button type="button" class="stog order" data-s="order" data-id="${esc(it.id)}" aria-pressed="${!!st.order}">${st.order?'À commander ✓':'À commander'}</button>
@@ -1163,7 +1166,7 @@ function renderStock(){
       <input class="inp" id="s-q" type="search" placeholder="Chercher un produit" value="${esc(SV.q)}" aria-label="Chercher un produit">
     </div>
     ${SV.filter==='order'&&toOrder.length?`<section class="orderbox"><div class="totals-head"><h2>Liste de commande</h2><span style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn" data-s="copy">Copier la liste</button><button type="button" class="btn" data-s="allrecu">Tout reçu</button></span></div>
-      <p>${toOrder.map(it=>esc(it.n)).join(' · ')}</p></section>`:''}
+      <ul class="orderlist">${toOrder.map(it=>{ const q=statOf(it.id).q; return `<li><span>${esc(it.n)}</span><b data-oq="${esc(it.id)}">${q?esc(q):'quantité ?'}</b></li>`; }).join('')}</ul></section>`:''}
     ${groups||`<p class="empty">${SV.filter==='out'?'Aucun produit épuisé.':SV.filter==='order'?'Rien à commander pour l’instant.':'Aucun produit ne correspond.'}</p>`}
     ${hidden.length?`<section class="shidden"><button type="button" class="linkbtn" data-s="showhidden" aria-expanded="${!!SV.showHidden}">${SV.showHidden?'▾':'▸'} Produits retirés (${hidden.length})</button>
       ${SV.showHidden?`<ul class="hlist2">${hidden.map(it=>`<li><span>${esc(it.n)}</span><span class="memact"><button type="button" class="btn sm" data-s="unhide" data-id="${esc(it.id)}">Remettre</button>${it.custom?`<button type="button" class="linkbtn" data-s="del" data-id="${esc(it.id)}">Supprimer définitivement</button>`:''}</span></li>`).join('')}</ul>`:''}</section>`:''}
@@ -1180,6 +1183,7 @@ function stockClick(t){
   switch(s){
     case 'filter': SV.filter=t.dataset.v; break;
     case 'use': SV.open = SV.open===id ? null : id; break;
+    case 'sameq': setStat(id,{q:statOf(id).lq}); break;
     case 'hide': { const st=stOf(it); if(st.out||st.order) setStock(id,{out:false,order:false}); setStat(id,{hide:true, pin:false}); if(SV.open===id) SV.open=null;
       toast(`${it.n} retiré de la liste. Vous le retrouverez en bas, dans « Produits retirés ».`, 5000); break; }
     case 'unhide': setStat(id,{hide:false}); toast(`${it.n} remis dans la liste.`); break;
@@ -1189,7 +1193,7 @@ function stockClick(t){
     case 'order': setStock(id,{order:!stOf(it).order}); break;
     case 'recu': setStock(id,{out:false, order:false}); toast(`${it.n} : reçu.`); break;
     case 'allrecu': for(const k of Object.keys(STOCK.s)) if(STOCK.s[k].order) setStock(k,{out:false,order:false}); toast('Commande reçue : tout ce qui était à commander est de nouveau en stock.'); break;
-    case 'copy': { const txt=allItems().filter(x=>stOf(x).order).sort((a,b)=>a.n.localeCompare(b.n,'fr')).map(x=>'- '+x.n).join('\n');
+    case 'copy': { const txt=allItems().filter(x=>stOf(x).order).sort((a,b)=>a.n.localeCompare(b.n,'fr')).map(x=>{ const q=statOf(x.id).q; return '- '+x.n+(q?' : '+q:''); }).join('\n');
       (navigator.clipboard?navigator.clipboard.writeText('À commander :\n'+txt):Promise.reject()).then(()=>toast('Liste copiée : collez-la dans un message.')).catch(()=>toast('La copie n’a pas fonctionné sur cet appareil.')); return; }
     case 'add': SV.adding=true; renderStock(); $('#s-new').focus(); return;
     case 'addno': SV.adding=false; break;
@@ -1360,6 +1364,17 @@ $('#bottombar').addEventListener('click',e=>{ const a=e.target.closest('[data-ta
   if(a.dataset.tab==='recettes'){ e.preventDefault(); if(editing){ toast('Enregistrez ou annulez la fiche en cours.'); return; }
     if(location.hash && location.hash!=='#'){ location.hash=''; } else { CAT='Tout'; $('#q').value=''; renderList(); } window.scrollTo(0,0); } });
 matchMedia('(min-width: 900px)').addEventListener('change',()=>{ if(!editing) route(); });
+/* Quantité à commander : enregistrée pendant la saisie, sans redessiner la page (le clavier reste ouvert) */
+const qtyTimers={};
+$('#main').addEventListener('input',e=>{
+  const id=e.target.dataset && e.target.dataset.sq; if(view!=='stock' || !id) return;
+  STOCK.stats=STOCK.stats||{}; STOCK.stats[id]={...statOf(id), q:e.target.value.trim()};
+  store.set('fiches.stock',STOCK);
+  const li=document.querySelector(`.orderlist [data-oq="${CSS.escape(id)}"]`); if(li) li.textContent=e.target.value.trim()||'quantité ?';
+  clearTimeout(qtyTimers[id]); qtyTimers[id]=setTimeout(()=>{ if(TEAM) pushStat(id); else touchStock(); }, 600);
+});
+$('#main').addEventListener('keydown',e=>{ if(view==='stock' && e.target.dataset && e.target.dataset.sq && e.key==='Enter'){ e.preventDefault(); e.target.blur(); } });
+$('#main').addEventListener('focusout',e=>{ if(view==='stock' && e.target.dataset && e.target.dataset.sq){ const id=e.target.dataset.sq; clearTimeout(qtyTimers[id]); if(TEAM) pushStat(id); else touchStock(); } });
 $('#main').addEventListener('input',e=>{ if(view==='stock' && e.target.id==='s-q'){ SV.q=e.target.value; const pos=e.target.selectionStart; renderStock(); const i=$('#s-q'); i.focus(); try{ i.setSelectionRange(pos,pos); }catch(_){} } });
 $('#main').addEventListener('keydown',e=>{ if(view==='stock' && e.target.id==='s-new' && e.key==='Enter'){ e.preventDefault(); const b=document.querySelector('[data-s="addok"]'); if(b) b.click(); } });
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && USER && online() && !editing && Date.now()-lastLoad>30000) loadRecipes(); });
