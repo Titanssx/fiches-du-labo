@@ -78,6 +78,18 @@ async function loadRecipes(){
   resolveUrls();
   applyFixes();
   loadStock();
+  loadNotes();
+}
+/* Notes de l'équipe : une ligne par note, identifiant « prod:note:… » (écriture ouverte aux collègues, comme l'historique). */
+let NOTES = store.get('fiches.notes', {});
+async function loadNotes(){
+  if(!SB||!USER||!online()) return;
+  const {data,error}=await SB.from('recettes').select('id,data').like('id','prod:note:%');
+  if(error) return;
+  const m={};
+  for(const x of data){ const d=x.data||{}; if(!d.recipe_id) continue; (m[d.recipe_id]=m[d.recipe_id]||[]).push({id:x.id, t:String(d.t||''), at:+d.at||0, by:d.by||''}); }
+  const before=JSON.stringify(NOTES); NOTES=m; store.set('fiches.notes',NOTES);
+  if(before!==JSON.stringify(m) && view==='sheet' && shown && !editing && !(document.activeElement&&document.activeElement.id==='note-in')) renderSheet(shown);
 }
 /* Corrections ponctuelles des fiches, appliquées une seule fois pour tout le compte. */
 const FIXES = [
@@ -250,7 +262,7 @@ async function signedIn(user){
 function signedOut(){
   editable=false; RECIPES=[]; byId={}; shown=null; editing=null;
   store.del('fiches.cache'); store.del('fiches.urls'); URLS={};
-  store.del('fiches.stock'); store.del('fiches.stockPending'); store.del('fiches.statPending'); STOCK={s:{},custom:[],stats:{}}; stockPending={}; statPending={}; MEMBERS=[];
+  store.del('fiches.stock'); store.del('fiches.stockPending'); store.del('fiches.statPending'); STOCK={s:{},custom:[],stats:{}}; stockPending={}; statPending={}; MEMBERS=[]; store.del('fiches.notes'); NOTES={};
   showApp(false); $('#login-form').hidden=false; $('#setup-msg').hidden=true;
 }
 $('#login-form').addEventListener('submit',async e=>{
@@ -400,7 +412,12 @@ function renderSheet(r){
           <span class="q"><span data-q="${ci}:${ii}"></span><small>${i.q==null?'':esc(i.u)}</small></span>
         </button></li>`}).join('')}</ul>
     </section>`).join('');
-  const jl = r.journal.length;
+  // Notes : les anciennes (rangées dans la recette) + celles de l'équipe (lignes « prod:note: »)
+  const allNotes = [...r.journal.map((j,ji)=>({legacy:true, ji, t:j.t, at:j.at, by:''})), ...(NOTES[r.id]||[])].sort((a,b)=>b.at-a.at);
+  const jl = allNotes.length;
+  const me = String(USER&&USER.email||'').toLowerCase();
+  const canDel = n=> n.legacy ? editable : (editable || String(n.by||'').toLowerCase()===me);
+  const who = n=> !n.by ? '' : (String(n.by).toLowerCase()===me ? 'vous' : String(n.by).split('@')[0]);
   $('#main').innerHTML = `<article class="sheet">
     <button type="button" class="back" id="back">‹ Retour</button>
     <div class="head${r.photos[0]?' has-hero':''}">
@@ -426,10 +443,10 @@ function renderSheet(r){
     <div class="comps">${comps}</div>
     <section class="journal">
       <div class="totals-head"><h2>Notes</h2><span class="jcount">${jl?jl+' note'+(jl>1?'s':''):''}</span></div>
-      ${jl?`<ol class="jlist">${r.journal.map((j,ji)=>({j,ji})).sort((a,b)=>b.j.at-a.j.at).map(({j,ji})=>`
-        <li><div class="jmeta"><time>${j.at?esc(new Date(j.at).toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})):''}</time>${editable?`<button type="button" class="linkbtn" data-note-del="${ji}">Supprimer</button>`:''}</div><p>${esc(j.t)}</p></li>`).join('')}</ol>`
-        :`<p class="empty">${editable?'Aucune note. Notez un essai, un réglage de cuisson, un fournisseur…':'Aucune note sur cette fiche.'}</p>`}
-      ${editable?`<div class="jadd"><label class="vh" for="note-in">Nouvelle note</label><textarea id="note-in" class="inp" placeholder="ex. 12/11 : gélatine réduite à 36 g, tenue parfaite"></textarea><button type="button" class="btn primary" id="note-add">Ajouter la note</button></div>`:''}
+      ${jl?`<ol class="jlist">${allNotes.map(n=>`
+        <li><div class="jmeta"><span><time>${n.at?esc(new Date(n.at).toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'})):''}</time>${who(n)?` · par ${esc(who(n))}`:''}</span>${canDel(n)?(n.legacy?`<button type="button" class="linkbtn" data-note-del="${n.ji}">Supprimer</button>`:`<button type="button" class="linkbtn" data-note-rm="${esc(n.id)}">Supprimer</button>`):''}</div><p>${esc(n.t)}</p></li>`).join('')}</ol>`
+        :`<p class="empty">${USER?'Aucune note. Notez un essai, un réglage de cuisson, un fournisseur…':'Aucune note sur cette fiche.'}</p>`}
+      ${USER?`<div class="jadd"><label class="vh" for="note-in">Nouvelle note</label><textarea id="note-in" class="inp" placeholder="ex. 12/11 : gélatine réduite à 36 g, tenue parfaite"></textarea><button type="button" class="btn primary" id="note-add">Ajouter la note</button></div>`:''}
     </section>
     <section class="totals">
       <div class="totals-head"><h2>À sortir</h2><button type="button" class="linkbtn" id="uncheck">Effacer les coches de cette recette</button></div>
@@ -898,7 +915,7 @@ async function loadHistory(){
   const {data,error}=await SB.from('recettes').select('id,data').like('id','prod:%').gte('data->>produced_at',from.toISOString()).lte('data->>produced_at',to.toISOString()).limit(5000);
   HIST.loading=false;
   if(error){ HIST.err = online()?'L’historique ne peut pas être chargé. Vérifiez la connexion et réessayez.':'Hors connexion : l’historique s’affichera au retour du réseau.'; HIST.rows=[]; }
-  else { HIST.rows=data.map(x=>({id:x.id, recipe_id:x.data.recipe_id, produced_at:x.data.produced_at, data:x.data})); HIST.loaded=true; }
+  else { HIST.rows=data.filter(x=>x.data && x.data.type!=='note' && !x.id.startsWith('prod:note:')).map(x=>({id:x.id, recipe_id:x.data.recipe_id, produced_at:x.data.produced_at, data:x.data})); HIST.loaded=true; }
   const pend=PENDING.filter(p=>{ const d=new Date(p.produced_at); return d>=from&&d<=to; }).map(p=>({id:'pending:'+p.tmp, recipe_id:p.recipe_id, produced_at:p.produced_at, data:p.data, pending:true}));
   HIST.rows=[...pend,...HIST.rows].sort((a,b)=>b.produced_at.localeCompare(a.produced_at));
   renderHistory();
@@ -1439,8 +1456,13 @@ $('#main').addEventListener('click',e=>{
   if(t.id==='prod-cancel'){ $('#prodform').hidden=true; return; }
   if(t.id==='prod-save'){ recordProduction(r,c,t); return; }
   if(t.id==='note-add'){ const ta=$('#note-in'); const txt=ta.value.trim(); if(!txt){ ta.focus(); return; } if(!needOnline()) return;
-    t.disabled=true; const doc=toStored(r); doc.journal=[...r.journal,{t:txt,at:Date.now()}];
-    saveRecipe(r.id,doc).then(nr=>{ toast('Note ajoutée'); shown=nr; renderSheet(nr); }).catch(()=>{ t.disabled=false; toast('La note n’a pas pu être enregistrée. Réessayez.'); }); return; }
+    t.disabled=true; const id='prod:note:'+uuid(), n={type:'note', recipe_id:r.id, t:txt, at:Date.now(), by:USER&&USER.email||''};
+    SB.from('recettes').upsert({id, owner:OWNER_ID||USER.id, data:n, updated_at:new Date().toISOString()}).then(({error})=>{
+      if(error){ t.disabled=false; toast('La note n’a pas pu être enregistrée. Réessayez.'); return; }
+      (NOTES[r.id]=NOTES[r.id]||[]).push({id, ...n}); store.set('fiches.notes',NOTES); toast('Note ajoutée'); renderSheet(r); }); return; }
+  if(t.dataset.noteRm){ if(!needOnline()) return; const id=t.dataset.noteRm;
+    SB.from('recettes').delete().eq('id',id).then(({error})=>{ if(error){ toast('La suppression a échoué. Réessayez.'); return; }
+      NOTES[r.id]=(NOTES[r.id]||[]).filter(x=>x.id!==id); store.set('fiches.notes',NOTES); toast('Note supprimée'); renderSheet(r); }); return; }
   if(t.dataset.noteDel!=null){ if(!needOnline()) return; const doc=toStored(r); doc.journal=r.journal.filter((_,i)=>i!==+t.dataset.noteDel);
     saveRecipe(r.id,doc).then(nr=>{ toast('Note supprimée'); shown=nr; renderSheet(nr); }).catch(()=>toast('La suppression a échoué. Réessayez.')); return; }
   if(t.dataset.mode){ c.mode=t.dataset.mode; document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',b===t)); $('#inputs').innerHTML=inputsHTML(r,c); update(r); return; }
