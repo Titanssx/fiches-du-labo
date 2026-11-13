@@ -112,6 +112,11 @@ const FIXES = [
     const out=[], C=window.FDL_PHOTO_CREDITS||{};
     for(const rid of Object.keys(C)){ const r=byId[rid]; if(r && !r.photos.length){ const d=toStored(r); d.photos=['pub:'+rid+'.jpg']; out.push([rid,d]); } }
     return out; }},
+  // Second lot (13/11) : brioche, brownies, madeleine, pouding chômeur, tarte érable pacane, cookies framboise
+  {id:'2026-11-13-photos-illustration-2', run(){
+    const out=[], C=window.FDL_PHOTO_CREDITS||{};
+    for(const rid of Object.keys(C)){ const r=byId[rid]; if(r && !r.photos.length){ const d=toStored(r); d.photos=['pub:'+rid+'.jpg']; out.push([rid,d]); } }
+    return out; }},
 ];
 let fixing=false;
 async function applyFixes(){

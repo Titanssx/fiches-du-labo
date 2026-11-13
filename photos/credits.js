@@ -144,5 +144,35 @@ window.FDL_PHOTO_CREDITS = {
                                           "artist":  "Tamorlan",
                                           "lic":  "CC BY 3.0",
                                           "page":  "https://commons.wikimedia.org/wiki/File:Merengues-Spain.jpg"
-                                      }
+                                      },
+    "c-brioche":  {
+                      "artist":  "",
+                      "lic":  "CC BY-SA 3.0",
+                      "page":  "https://commons.wikimedia.org/wiki/File:Brioche.jpg"
+                  },
+    "c-brownies":  {
+                       "artist":  "Steven Depolo",
+                       "lic":  "CC BY 2.0",
+                       "page":  "https://commons.wikimedia.org/wiki/File:Brownie_squares_with_confectioner%27s_sugar_27_March_2010.jpg"
+                   },
+    "c-madeleine":  {
+                        "artist":  "myself (Bernard Leprêtre)",
+                        "lic":  "CC BY-SA 2.5",
+                        "page":  "https://commons.wikimedia.org/wiki/File:Madeleines_de_Commercy.jpg"
+                    },
+    "c-tartes-erable-pacane":  {
+                                   "artist":  "Joe Hakim",
+                                   "lic":  "CC BY 2.0",
+                                   "page":  "https://commons.wikimedia.org/wiki/File:Pecan_pie,_November_2010.jpg"
+                               },
+    "c-cookies-framboise":  {
+                                "artist":  "Wiki Farazi",
+                                "lic":  "CC0",
+                                "page":  "https://commons.wikimedia.org/wiki/File:Biskut_red_velvet_(Red_velvet_cookie)_20230425_083532.jpg"
+                            },
+    "c-pouding-chomeur":  {
+                              "artist":  "Geneviève Desroches",
+                              "lic":  "CC0",
+                              "page":  "https://commons.wikimedia.org/wiki/File:Pouding_chomeur.jpg"
+                          }
 };
