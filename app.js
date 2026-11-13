@@ -27,7 +27,14 @@ const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v)
 let checked = new Set(store.get('fiches.checked',[]));
 const saveChecked = ()=>store.set('fiches.checked',[...checked]);
 URLS = store.get('fiches.urls',{});
-const photoSrc = p=>{ if(typeof p!=='string') return ''; if(p.startsWith('sb:')){ const e=URLS[p]; return e&&e.x>Date.now()?e.u:''; } return ''; };
+const photoSrc = p=>{ if(typeof p!=='string') return ''; if(p.startsWith('sb:')){ const e=URLS[p]; return e&&e.x>Date.now()?e.u:''; } if(p.startsWith('pub:')) return 'photos/'+encodeURIComponent(p.slice(4)); return ''; };
+/* Crédit d'une photo d'illustration (licence libre : l'auteur doit être cité) */
+function photoCredit(p){
+  if(typeof p!=='string' || !p.startsWith('pub:')) return '';
+  const c=(window.FDL_PHOTO_CREDITS||{})[p.slice(4).replace(/\.jpg$/,'')]; if(!c) return '';
+  const who=String(c.artist||'').replace(/\s+/g,' ').trim().slice(0,60) || 'auteur inconnu';
+  return `Photo d’illustration : ${who} · ${c.lic} · <a href="${esc(c.page)}" target="_blank" rel="noopener">Wikimedia Commons</a>`;
+}
 const photoTag = (p,alt,extra='')=>`<img data-photo="${esc(p)}" src="${esc(photoSrc(p))}" alt="${esc(alt||'')}" ${extra}>`;
 function toast(msg,ms=3500){ const t=$('#toast'); t.textContent=msg; t.hidden=false; clearTimeout(toast.t); toast.t=setTimeout(()=>t.hidden=true,ms); }
 const online = ()=>navigator.onLine!==false;
@@ -99,6 +106,11 @@ const FIXES = [
     order('tiramisu-cadres',[2,3,0,1]); order('tiramisu-verrines',[3,2,1,0]);
     const s=byId['sublime']; if(s && !s.refs.some(x=>x.id==='glacage-miroir-noir')){ const d=toStored(s); d.refs=[...s.refs,{label:'Glaçage miroir noir',id:'glacage-miroir-noir'}]; out.push(['sublime',d]); }
     const p=byId['piedmont']; if(p){ const d=toStored(p); d.refs=[{label:'Dacquoise noisette / amande',id:'dacquoise'}, ...p.refs.filter(x=>x.id!=='dacquoise' && !/succ[eè]s/i.test(x.label))]; out.push(['piedmont',d]); }
+    return out; }},
+  // Photos d'illustration (Wikimedia Commons) pour les recettes du carnet qui n'ont encore aucune photo
+  {id:'2026-11-12-photos-illustration', run(){
+    const out=[], C=window.FDL_PHOTO_CREDITS||{};
+    for(const rid of Object.keys(C)){ const r=byId[rid]; if(r && !r.photos.length){ const d=toStored(r); d.photos=['pub:'+rid+'.jpg']; out.push([rid,d]); } }
     return out; }},
 ];
 let fixing=false;
@@ -427,6 +439,7 @@ function renderSheet(r){
     </div>
     ${(()=>{ const m=missingFor(r); return m.length?`<div class="missbanner" role="status"><b>Il te manque ${m.length>1?m.length+' ingrédients':'un ingrédient'} pour cette recette</b><span>${esc(m.map(x=>x.n).join(', '))} : marqué${m.length>1?'s':''} épuisé${m.length>1?'s':''}.</span><a href="#ingredients" class="linkbtn">Voir les ingrédients</a></div>`:''; })()}
     ${photos||editable?`<div class="photos">${photos}${editable?`<label class="addphoto${photos?'':' empty'}" for="photo-quick"><span aria-hidden="true">+</span>${photos?'Photo':'Ajouter une photo de la recette'}</label>`:''}</div>`:''}
+    ${(()=>{ const cr=r.photos.map(photoCredit).filter(Boolean); return cr.length?`<p class="pcredit">${cr.join('<br>')}${editable?' — remplacez-la par votre propre photo avec « Modifier la fiche ».':''}</p>`:''; })()}
     <section class="prod" aria-label="Calcul de production">
       <h2>Production <small>Toutes les quantités se recalculent en direct</small></h2>
       <div class="modes" role="group" aria-label="Mode de calcul">${modesFor(r).map(([k,l])=>`<button type="button" data-mode="${k}" aria-pressed="${c.mode===k}">${esc(l)}</button>`).join('')}</div>

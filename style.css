@@ -681,6 +681,11 @@ h1,.head h1,.editor h1,.mhead h2,.login-card h1{font-family:var(--f-serif);font-
 .inp{border-radius:12px}
 .inp:focus{border-color:var(--gold);box-shadow:0 0 0 4px var(--gold-soft)}
 
+/* Crédit des photos d'illustration */
+.pcredit{margin:-14px 0 0;font-size:.72rem;color:var(--muted);line-height:1.45}
+.pcredit a{color:inherit}
+@media print{ .pcredit{display:none} }
+
 /* Quantité à commander */
 .sqty{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:.8rem;font-weight:600;color:var(--gold);order:3}
 .sqty .inp{flex:1 1 180px;max-width:280px;min-height:36px;padding:6px 12px;border-radius:999px;font-weight:500;color:var(--ink);background:var(--surface)}
